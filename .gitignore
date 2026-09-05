@@ -1,4 +1,5 @@
 *.zip
+.testdeps/
 *.ps1
 *.psm1
 *.psd1

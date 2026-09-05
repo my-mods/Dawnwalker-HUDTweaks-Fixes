@@ -5,7 +5,7 @@
     <modid>HUDTweaksPromptDismissalFix</modid>
     <description>Stops HUDTweaks from forcing dismissed tutorial and interaction prompts visible.</description>
     <author>Local compatibility fix</author>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <created_on>2026-09-05</created_on>
   </info>
   <supports>

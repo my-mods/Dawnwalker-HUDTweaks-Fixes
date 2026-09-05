@@ -1,0 +1,6 @@
+The mod payload uses the explicit game-root layout:
+Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/HUDTweaks.ini
+
+Data is retained at the archive root for the mod packaging convention. Do not
+move or duplicate the INI here: an INI-only Data layout selects the wrong Vortex
+installer and places HUDTweaks.ini beside Dawnwalker.exe.

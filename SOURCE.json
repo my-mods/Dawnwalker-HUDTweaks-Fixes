@@ -1,5 +1,8 @@
 {
   "game": "The Blood of Dawnwalker",
+  "modVersion": "1.0.1",
+  "vortexInstaller": "root",
+  "iniArchivePath": "Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/HUDTweaks.ini",
   "steamBuild": "25129649",
   "executable": "dw1-pc-257186-shipping-patch2-all-CL-257186",
   "officialPatchAtCapture": "Hotfix 1.0.2",
