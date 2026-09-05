@@ -25,7 +25,7 @@ To uninstall, disable/remove this add-on and deploy through Vortex, leaving orig
 
 Compatibility
 
-Prepared against Steam build 25129649 / CL-257186 and HUDTweaks v4. Later versions are unverified. In-game validation is still pending.
+Prepared against Steam build 25129649 / CL-257186 and HUDTweaks v4. Later versions are unverified.
 
 Credits
 
