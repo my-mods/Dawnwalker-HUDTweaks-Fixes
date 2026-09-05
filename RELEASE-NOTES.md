@@ -1,26 +1,21 @@
-# HUD Tweaks - Fixes 1.1.1
+# HUD Tweaks - Fixes 1.1.2
 
-The former Prompt Dismissal Fix is now **HUD Tweaks - Fixes**. Its scope includes
-prompt dismissal, idle fading while injured and robust player lookup through
-loading/possession changes. Repository history and prior releases are preserved.
+Fix repeated Vortex external-change warnings by using the same **UE4SS (Lua mods)**
+deployment type as original HUDTweaks. The old Root package reached the correct
+files through a separate deployment record, causing false external modifications
+and potentially contaminating the original staging copy when changes were saved.
 
-New repository: my-mods/Dawnwalker-HUDTweaks-Fixes.
-New archive: HUDTweaks-Fixes.zip. New manifest ID: HUDTweaksFixes.
-The Lua and INI are byte-for-byte identical to 1.1.0; v4's layout/visuals remain intact.
+The ZIP now places its single Lua/INI payloads under Data/HUDTweaks/Scripts. The
+installed extension strips Data and routes both to the original HUDTweaks Scripts
+directory as dawnwalker-ue4ss. Display name, ID and ZIP filename stay unchanged.
+Runtime bytes are identical to 1.1.1. Original HUDTweaks v4 remains required.
 
-Requires original HUDTweaks v4 and its Dawnwalker-compatible UE4SS installation.
-Replace/reinstall the existing Prompt Dismissal Fix entry in Vortex using this ZIP;
-select Root (game folder). Let HUD Tweaks - Fixes win BOTH main.lua and HUDTweaks.ini
-under HUDTweaks/Scripts, deploy and fully restart the game. If Vortex creates a
-separate entry, disable/remove the old overlay and deploy with Vortex; keep only one
-fixes overlay enabled. The renamed ZIP does not automatically merge installed entries.
+Repair: close the game, cancel a pending deployment, and Purge Mods through Vortex.
+For the two HUDTweaks reference changes, select Revert change (use staging file),
+not Save/Use newer. Remove both installed HUDTweaks and old fixes entries while
+keeping downloaded archives. Reinstall original Nexus v4 and this 1.1.2 ZIP. Both
+must use UE4SS (Lua mods); set HUD Tweaks - Fixes after original HUDTweaks and deploy.
+Keep one fixes entry. Do not edit hardlinks, staging or inventories manually.
 
-This is still a full INI and Lua replacement, not an automatic preferences merge.
-Back up custom settings. Current Controller Tweaks remains independent. Disable this
-overlay and deploy to restore original HUDTweaks files. Do not apply over newer
-HUDTweaks versions without review.
-
-Validation: unchanged runtime hashes versus 1.1.0, actual ZIP allowlist and metadata,
-two builds using the new stable filename, and installed Vortex destination planning.
-The existing Lua 5.4/lifecycle regressions remain applicable. In-game prompt dismissal,
-injured idle fade, and loading/possession checks remain pending; retained as prerelease.
+Full INI/Lua replacement; back up custom preferences. Runtime files are unchanged.
+Native checks remain pending; prerelease.

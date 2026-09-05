@@ -1,5 +1,11 @@
 # Changes
 
+## 1.1.2 — 2026-09-05
+
+- Fix cross-type Vortex ownership collisions and repeated external-change warnings.
+- Package Data/HUDTweaks/Scripts as dawnwalker-ue4ss, matching original HUDTweaks.
+- Preserve runtime bytes and stable mod identity; document Vortex-managed repair.
+
 ## 1.1.1 — 2026-09-05
 
 - Rename the mod to HUD Tweaks - Fixes to reflect the broader scope.

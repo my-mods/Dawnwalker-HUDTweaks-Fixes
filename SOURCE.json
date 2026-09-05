@@ -1,9 +1,9 @@
 {
   "game": "The Blood of Dawnwalker",
-  "modVersion": "1.1.1",
+  "modVersion": "1.1.2",
   "releaseArchive": "HUDTweaks-Fixes.zip",
-  "vortexInstaller": "root",
-  "iniArchivePath": "Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/HUDTweaks.ini",
+  "vortexInstaller": "ue4ss-lua",
+  "iniArchivePath": "Data/HUDTweaks/Scripts/HUDTweaks.ini",
   "steamBuild": "25129649",
   "executable": "dw1-pc-257186-shipping-patch2-all-CL-257186",
   "upstreamV4": {
@@ -38,5 +38,11 @@
     "previousModId": "HUDTweaksPromptDismissalFix",
     "reason": "User-requested rename to reflect broader fixes; existing history retained.",
     "runtimeChanges": "None; INI and Lua bytes unchanged from 1.1.0."
+  },
+  "packagingFix": {
+    "version": "1.1.2",
+    "reason": "Root and UE4SS installers previously owned the same physical files through separate deployment records, producing refchange warnings. Both mods must use dawnwalker-ue4ss.",
+    "runtimeChanges": "None",
+    "migration": "Purge through Vortex; reinstall clean original HUDTweaks v4 and fixes; set fixes after original in same UE4SS mod type."
   }
 }

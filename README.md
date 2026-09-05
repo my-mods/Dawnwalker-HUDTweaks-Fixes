@@ -1,6 +1,6 @@
 # HUD Tweaks - Fixes
 
-Fixes and compatibility backports for **HUDTweaks v4** in The Blood of Dawnwalker. Version 1.1.1
+Fixes and compatibility backports for **HUDTweaks v4** in The Blood of Dawnwalker. Version 1.1.2
 preserves v4's layout and visual defaults while restoring the missing local fixes:
 
 - Let the game control both HUD prompt lines' opacity, so dismissing a prompt is not undone.
@@ -19,26 +19,42 @@ GitHub's source-code archives are not installable mods.
 
 Requires original HUDTweaks **v4** and its Dawnwalker-compatible UE4SS loader.
 Captured against installed Steam build 25129649 / executable CL-257186. Later
-HUDTweaks and game versions require review. Release 1.1.1 is a prerelease pending
+HUDTweaks and game versions require review. Release 1.1.2 is a prerelease pending
 in-game validation.
 
-1. Close the game and back up any customized HUDTweaks.ini.
-2. Keep original HUDTweaks v4 enabled. Use Vortex's replace/reinstall flow on your
-   existing Prompt Dismissal Fix entry with this ZIP. The new metadata names it
-   **HUD Tweaks - Fixes**. Keep one resulting entry enabled.
-3. Select **Root (game folder)**. This overlay must win **both** conflicts:
-   `HUDTweaks/Scripts/HUDTweaks.ini` and `HUDTweaks/Scripts/main.lua`.
-4. Deploy with Vortex and fully restart the game. Redeploying the older installed
-   entry alone cannot add the new Lua payload or read updated version metadata.
+1. Close the game and back up any custom HUDTweaks.ini preferences.
+2. Keep original HUDTweaks v4 enabled. Replace/reinstall this overlay from the new
+   ZIP. Select **UE4SS (Lua mods)**, matching the original mod's type.
+3. Set **HUD Tweaks - Fixes after original HUDTweaks** so its main.lua and
+   HUDTweaks.ini win the file conflicts. Deploy through Vortex and restart the game.
 
-Both payloads use the explicit archive prefix
-`Dawnwalker/Binaries/Win64/ue4ss/Mods/`. Do not use ReShade Preset.
-The original mod supplies enabled.txt and remains required. Current Controller
-Tweaks 1.3.0+ is independent and has no HUDTweaks file conflicts; earlier controller
-compass or standalone controller-compatibility entries must remain disabled.
+The ZIP contains one copy of each payload under `Data/HUDTweaks/Scripts/`.
+The installed Dawnwalker extension strips Data and deploys to
+`Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/`.
+Original HUDTweaks supplies enabled.txt and remains required. Current Controller
+Tweaks is independent and does not conflict with this submod.
 
-If upgrading from broken 1.0.0 packaging, disable/remove that entry and deploy in
-Vortex to remove the misplaced INI beside Dawnwalker.exe before reinstalling.
+### Repairing an installation from 1.1.1 or earlier
+
+The old Root package collided with original HUDTweaks deployed as UE4SS. Each
+deployment type tracked the same files independently, causing repeated external
+change warnings. Version 1.1.2 fixes the packaging, not the Lua/INI.
+
+1. Cancel any pending deployment dialog. Close the game. In Vortex, **Purge Mods**.
+   If it asks about the two HUDTweaks Lua/INI reference changes, choose **Revert
+   change (use staging file)**. Do not use Save or Use newer file to resolve this
+   packaging collision. Handle unrelated mods separately.
+2. Remove the installed original HUDTweaks and old fixes entries in Vortex while
+   keeping their downloaded archives. Previous external-change handling may have
+   linked the two staging copies together; rebuilding just one may retain that state.
+3. Reinstall original HUDTweaks from the clean Nexus v4 download and this submod
+   from **HUDTweaks-Fixes.zip version 1.1.2**. Both must be **UE4SS (Lua mods)**.
+4. Enable both, set fixes after original HUDTweaks, and deploy. Keep one fixes entry.
+   Repeating Deploy on the old installed entry cannot change its stored layout.
+
+All purge/remove/reinstall actions belong to Vortex. Do not edit staging files,
+hardlinks or deployment records manually. If custom preferences existed, reapply
+them deliberately after repair; this ZIP is a full-file replacement.
 
 ## Rename and migration
 

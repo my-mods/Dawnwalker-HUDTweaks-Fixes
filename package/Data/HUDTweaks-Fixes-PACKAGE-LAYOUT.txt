@@ -1,9 +1,7 @@
 HUD Tweaks - Fixes package layout
 
-Both payloads use explicit game-relative paths beneath:
-Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/
-  HUDTweaks.ini
-  main.lua
-
-Select Root (game folder) in Vortex. Data retains only this uniquely named note.
-Do not duplicate runtime payloads under Data. The overlay wins both file conflicts.
+Payloads: Data/HUDTweaks/Scripts/main.lua and HUDTweaks.ini, exactly once each.
+Select UE4SS (Lua mods). The installed extension strips Data and deploys inside
+Dawnwalker/Binaries/Win64/ue4ss/Mods. Original and overlay MUST use dawnwalker-ue4ss
+so Vortex resolves their shared HUDTweaks/Scripts destination keys as normal conflicts.
+Root (game folder) caused separate deployment ownership and external-change warnings.
