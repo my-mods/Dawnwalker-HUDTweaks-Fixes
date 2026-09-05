@@ -1,4 +1,8 @@
-HUDTWEAKS - PROMPT DISMISSAL FIX 1.0.2
+HUDTWEAKS - PROMPT DISMISSAL FIX 1.0.3
+
+Packaging update: Data/HUDTweaks-Prompt-Dismissal-Fix-PACKAGE-LAYOUT.txt is unique to this mod.
+Replace/reinstall the existing Vortex entry from the updated ZIP and deploy to
+remove the old shared Data/PACKAGE-LAYOUT.txt. Gameplay behavior is unchanged.
 ======================================
 
 Game: The Blood of Dawnwalker (PC)

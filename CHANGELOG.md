@@ -1,5 +1,11 @@
 # Changes
 
+## 1.0.3 — 2026-09-05
+
+- Rename the Data layout note to HUDTweaks-Prompt-Dismissal-Fix-PACKAGE-LAYOUT.txt.
+- Exclude the old shared note from archives.
+- Keep the stable ZIP filename and existing runtime behavior.
+
 ## 1.0.2 — 2026-09-05
 
 - Use HUDTweaks-Prompt-Dismissal-Fix.zip, with no version suffix.
