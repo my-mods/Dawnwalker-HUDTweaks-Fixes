@@ -1,0 +1,9 @@
+HUD Tweaks - Fixes — license and attribution notice
+
+This unofficial add-on includes HUDTweaks v4 code and configuration by the
+original HUDTweaks author, with compatibility changes and adjusted maintenance
+intervals. Original HUDTweaks remains required.
+
+Upstream components remain subject to their author's license and distribution
+permissions. This notice does not grant additional rights to those components
+or relicense them. Preserve the original attribution when using this add-on.

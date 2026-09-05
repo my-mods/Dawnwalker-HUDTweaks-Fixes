@@ -1,5 +1,13 @@
 # Changes
 
+## 1.1.3 â€” 2026-09-05
+
+- Slow auto-fade state checks from a 0.1-second delay to 0.5 seconds.
+- Slow routine layout rechecks from 2 seconds to 5 seconds.
+- Preserve fade durations, animation cadence, prompt fixes, visual settings and Lua behavior.
+- Include changelog and current release notes in the stable Vortex archive.
+- Activity detection may respond a fraction of a second later; object searches still occur.
+
 ## 1.1.2 — 2026-09-05
 
 - Fix cross-type Vortex ownership collisions and repeated external-change warnings.
