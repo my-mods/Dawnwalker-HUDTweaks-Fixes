@@ -1,5 +1,11 @@
 # Changes
 
+## 1.0.2 — 2026-09-05
+
+- Use HUDTweaks-Prompt-Dismissal-Fix.zip, with no version suffix.
+- Keep version numbers in metadata and release tags; update one Vortex mod entry.
+- The installation paths and fixed INI are unchanged from 1.0.1.
+
 ## 1.0.1 — 2026-09-05
 
 - Correct the archive destination to the full Dawnwalker game-root path.

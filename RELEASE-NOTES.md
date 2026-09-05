@@ -1,4 +1,7 @@
-# HUDTweaks Prompt Dismissal Fix v1.0.1
+# HUDTweaks Prompt Dismissal Fix v1.0.2
+
+Packaging-only update: always use `HUDTweaks-Prompt-Dismissal-Fix.zip`. Versions remain in metadata and release tags, not the filename.
+The corrected installation paths and all six opacity fixes are unchanged from 1.0.1.
 
 Fixes the installation paths. The previous INI-only Data layout was detected as a
 ReShade preset, flattening HUDTweaks.ini beside Dawnwalker.exe. This archive uses
@@ -11,8 +14,9 @@ prompt sections. This allows the game's own dismissal opacity to remain in contr
 
 1. Close the game. Disable/remove the old v1.0.0 installation in Vortex and deploy
    to remove its misplaced INI.
-2. Import `HUDTweaks-Prompt-Dismissal-Fix-1.0.1-Vortex.zip` as a fresh installation.
-   Simply redeploying the old installation does not repair its stored paths.
+2. Import `HUDTweaks-Prompt-Dismissal-Fix.zip` using Vortex's replace/update flow
+   for the same mod entry. Migrating from v1.0.0 needs the new archive processed by
+   the installer; simply redeploying that old installation does not repair its paths.
 3. Confirm Root (game folder) type, enable and deploy.
 
 Keep HUDTweaks v2 and UE4SS installed; let this overlay win `HUDTweaks.ini`.

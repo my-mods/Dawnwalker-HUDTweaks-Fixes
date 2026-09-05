@@ -14,8 +14,9 @@ Steam build 25129649 / executable CL-257186; later-version compatibility is unve
 
 1. Close the game. If v1.0.0 is installed, disable/remove that installed mod in Vortex
    and deploy so Vortex removes its misplaced `Dawnwalker/Binaries/Win64/HUDTweaks.ini`.
-2. Import `HUDTweaks-Prompt-Dismissal-Fix-1.0.1-Vortex.zip` as a fresh installation.
-   Redeploying the existing v1.0.0 installation cannot repair its stored layout.
+2. Import `HUDTweaks-Prompt-Dismissal-Fix.zip`, using Vortex's replace/update flow
+   for the same mod entry. Migrating from broken v1.0.0 requires the new archive to
+   be processed by the installer; redeploying its existing files cannot repair the layout.
 3. Keep the original HUDTweaks mod enabled. The new overlay should use Vortex's
    **Root (game folder)** type, not ReShade Preset.
 4. Enable this overlay and let it win the active `HUDTweaks/Scripts/HUDTweaks.ini`

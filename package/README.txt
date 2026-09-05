@@ -1,4 +1,4 @@
-HUDTWEAKS - PROMPT DISMISSAL FIX 1.0.1
+HUDTWEAKS - PROMPT DISMISSAL FIX 1.0.2
 ======================================
 
 Game: The Blood of Dawnwalker (PC)
@@ -24,7 +24,9 @@ VORTEX INSTALLATION
 -------------------
 1. Close the game. Disable/remove the installed v1.0.0 mod in Vortex and deploy to
    remove its misplaced INI beside Dawnwalker.exe.
-2. Import this v1.0.1 ZIP as a fresh installation, not just a redeploy of the old entry.
+2. Import HUDTweaks-Prompt-Dismissal-Fix.zip using Vortex's replace/update flow.
+   Keep one mod entry. Migrating from v1.0.0 needs the new archive processed by
+   Vortex's installer, not just a redeploy of that version's existing files.
    Vortex must select Root (game folder), not ReShade Preset.
 3. Enable and deploy. When Vortex reports a file conflict with HUDTweaks, make this fix load AFTER / WIN
    over HUDTweaks for HUDTweaks\Scripts\HUDTweaks.ini.
@@ -33,6 +35,7 @@ VORTEX INSTALLATION
 The INI must deploy to this path relative to the game root:
   Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/HUDTweaks.ini
 There is exactly one INI in the archive. Data contains only a package-layout note.
+The ZIP filename stays unchanged across updates; versions are stored in metadata.
 Version 1.0.0 was misclassified as a ReShade preset, so redeploying that existing
 installation cannot fix its destination. Do not manually alter Vortex hardlinks.
 
