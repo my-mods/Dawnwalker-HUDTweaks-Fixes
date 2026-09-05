@@ -1,5 +1,10 @@
 # Changes
 
+## 1.0.4 — 2026-09-05
+
+- Generate Vortex display name, version, and description in the release archive.
+- Preserve the existing ZIP filename and runtime payloads. Reinstall/replace through Vortex to read metadata.
+
 ## 1.0.3 — 2026-09-05
 
 - Rename the Data layout note to HUDTweaks-Prompt-Dismissal-Fix-PACKAGE-LAYOUT.txt.

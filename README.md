@@ -50,3 +50,11 @@ This is an unofficial compatibility overlay for HUDTweaks, not the original mod.
 The upstream configuration belongs to its respective author; no new license is
 granted to third-party content. Report issues with the game/HUDTweaks versions,
 the affected prompt, and Vortex's INI conflict winner.
+
+## Vortex metadata and updates
+
+The ZIP includes installation metadata, so Vortex sets the display name, version, and description during installation. Runtime payloads and file destinations are unchanged.
+
+Replace/reinstall the updated ZIP through Vortex using the existing mod entry, then deploy. Redeployment alone cannot read new archive metadata. This does not provide automatic update discovery or merge duplicate Vortex entries.
+
+Archive filename: HUDTweaks-Prompt-Dismissal-Fix.zip

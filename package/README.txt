@@ -57,3 +57,10 @@ Back up your INI and rebuild from it if you want to retain different HUD setting
 Build-time checks verify all six opacity edits and reproduce Vortex's old misrouting.
 The installed Vortex extension routes this ZIP to the correct HUDTweaks Scripts path.
 Actual deployment and live prompt dismissal still need a user-controlled in-game check.
+
+VORTEX METADATA UPDATE 1.0.4
+The ZIP now generates vortex_override_instructions.json from mod.manifest, so Vortex sets the display name, version, and description during installation. Runtime payloads and file destinations are unchanged.
+
+Replace/reinstall the updated ZIP through Vortex using the existing mod entry, then deploy. Redeployment alone cannot read new archive metadata. This does not provide automatic update discovery or merge duplicate Vortex entries.
+
+Archive filename: HUDTweaks-Prompt-Dismissal-Fix.zip
