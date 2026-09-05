@@ -1,0 +1,9 @@
+{
+  "game": "The Blood of Dawnwalker",
+  "steamBuild": "25129649",
+  "executable": "dw1-pc-257186-shipping-patch2-all-CL-257186",
+  "officialPatchAtCapture": "Hotfix 1.0.2",
+  "upstreamMod": "HUDTweaks 132 version 2",
+  "upstreamStagingFolder": "HUDTweaks 132 2 2026-09-05T07-01Z KMWM7k88x",
+  "upstreamIniSha256": "C60C5662DD8012F1934710E09252576741E63B9E2A4B4F4021D9BE744DF19EC3"
+}

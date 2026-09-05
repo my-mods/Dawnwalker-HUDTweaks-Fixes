@@ -1,0 +1,15 @@
+*.zip
+*.ps1
+*.psm1
+*.psd1
+AGENTS.md
+.*/
+/tests/
+/tools/
+/scripts/
+/internal/
+/diagnostics/
+/build*
+/publish*
+/reapply*
+*.log
