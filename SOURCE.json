@@ -1,13 +1,31 @@
 {
   "game": "The Blood of Dawnwalker",
-  "modVersion": "1.0.4",
+  "modVersion": "1.1.0",
   "releaseArchive": "HUDTweaks-Prompt-Dismissal-Fix.zip",
   "vortexInstaller": "root",
   "iniArchivePath": "Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/HUDTweaks.ini",
   "steamBuild": "25129649",
   "executable": "dw1-pc-257186-shipping-patch2-all-CL-257186",
-  "officialPatchAtCapture": "Hotfix 1.0.2",
-  "upstreamMod": "HUDTweaks 132 version 2",
-  "upstreamStagingFolder": "HUDTweaks 132 2 2026-09-05T07-01Z KMWM7k88x",
-  "upstreamIniSha256": "C60C5662DD8012F1934710E09252576741E63B9E2A4B4F4021D9BE744DF19EC3"
+  "upstreamV4": {
+    "version": "4",
+    "archive": "HUDTweaks 132 4 2026-09-05T16-56Z pbqbTLAsF.zip",
+    "archiveSha256": "5CD2382514BBC100E000D8D2A9DD6E292BA60F317E21C50F9787D5E624334FB7",
+    "iniSha256": "59F8C0ABEE225B18F791425D10DCAAF953A10BEEC116FCBF4DBCF58C6C801165",
+    "luaSha256": "EFD99F20A55570EC2969551C0F2789AA8CA4D4E0589A50E1DAB09EFDB5CD1689",
+    "provenance": "User Nexus download; extracted in audit; verified deployed INI and Lua match exactly on 2026-09-05",
+    "nativeValidation": "Pending",
+    "layout": "Keep v4 layout and visual defaults per user request"
+  },
+  "legacyV2": {
+    "upstreamMod": "HUDTweaks 132 version 2",
+    "upstreamStagingFolder": "HUDTweaks 132 2 2026-09-05T07-01Z KMWM7k88x",
+    "upstreamIniSha256": "C60C5662DD8012F1934710E09252576741E63B9E2A4B4F4021D9BE744DF19EC3"
+  },
+  "upstreamMod": "HUDTweaks 132 version 4",
+  "pawnBackport": {
+    "source": "Retired local ControllerCompass.PlayerPawn implementation; ported without compass dependency",
+    "changes": "Revalidate possession, require a local non-default controller, guard FindAllOf, retry transient failures",
+    "sourceRepository": "my-mods/Dawnwalker-Controller-Tweaks",
+    "referenceTag": "v1.1.5"
+  }
 }

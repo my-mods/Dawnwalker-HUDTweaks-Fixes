@@ -1,5 +1,12 @@
 # Changes
 
+## 1.1.0 — 2026-09-05
+
+- Rebase on HUDTweaks v4, retaining its layout and visual defaults.
+- Use opacity = game on the two HUD prompt lines; allow idle fading while injured.
+- Port possession-safe player lookup with guarded collections and retry behavior.
+- Add the patched v4 main.lua to the same stable ZIP; overlay now wins both Lua and INI.
+
 ## 1.0.4 — 2026-09-05
 
 - Generate Vortex display name, version, and description in the release archive.

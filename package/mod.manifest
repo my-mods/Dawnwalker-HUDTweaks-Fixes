@@ -3,9 +3,9 @@
   <info>
     <name>HUDTweaks - Prompt Dismissal Fix</name>
     <modid>HUDTweaksPromptDismissalFix</modid>
-    <description>Stops HUDTweaks from forcing dismissed tutorial and interaction prompts visible.</description>
+    <description>HUDTweaks v4 compatibility: prompt dismissal, idle fading while injured, and possession-safe player lookup.</description>
     <author>Local compatibility fix</author>
-    <version>1.0.4</version>
+    <version>1.1.0</version>
     <created_on>2026-09-05</created_on>
   </info>
   <supports>

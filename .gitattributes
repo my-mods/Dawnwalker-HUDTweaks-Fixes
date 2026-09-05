@@ -3,3 +3,8 @@
 *.ini text eol=crlf
 *.json text eol=lf
 *.manifest text eol=lf
+
+# Preserve audited raw upstream bytes on every checkout.
+upstream/v4/* -text
+package/**/main.lua -text
+src/*.lua text eol=lf

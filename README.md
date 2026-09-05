@@ -1,60 +1,58 @@
-# HUDTweaks Prompt Dismissal Fix
+# HUDTweaks - Prompt Dismissal Fix
 
-Reproducible Vortex overlay for The Blood of Dawnwalker. It prevents HUDTweaks from
-reasserting non-zero `RenderOpacity` on widgets whose opacity is controlled by the game.
+Compatibility submod for **HUDTweaks v4** in The Blood of Dawnwalker. Version 1.1.0
+preserves v4's layout and visual defaults while restoring the missing local fixes:
+
+- Let the game control both HUD prompt lines' opacity, so dismissing a prompt is not undone.
+- Allow idle fading while injured (`showWhenHurt = false`); health-change notifications remain enabled.
+- Revalidate local controller possession, skip menu/remote/default controllers, and safely retry unavailable or malformed player lookups.
+
+V4's world-interaction prompt fix, child dimming, parent-based quickslot placement,
+compass behavior, fade timing and visual settings remain intact. The retired
+ControllerCompass feature is not included or required.
 
 ## Download and install
 
-Download the Vortex mod ZIP from
+Get **HUDTweaks-Prompt-Dismissal-Fix.zip** from
 [Releases](https://github.com/my-mods/Dawnwalker-HUDTweaks-Prompt-Fix/releases).
-GitHub's source-code ZIP is not an installable mod.
+GitHub's source-code archives are not installable mods.
 
-Requires HUDTweaks v2 and a Dawnwalker-compatible UE4SS installation. Prepared against
-Steam build 25129649 / executable CL-257186; later-version compatibility is unverified.
+Requires original HUDTweaks **v4** and its Dawnwalker-compatible UE4SS loader.
+Captured against installed Steam build 25129649 / executable CL-257186. Later
+HUDTweaks and game versions require review. Release 1.1.0 is a prerelease pending
+in-game validation.
 
-1. Close the game. If v1.0.0 is installed, disable/remove that installed mod in Vortex
-   and deploy so Vortex removes its misplaced `Dawnwalker/Binaries/Win64/HUDTweaks.ini`.
-2. Import `HUDTweaks-Prompt-Dismissal-Fix.zip`, using Vortex's replace/update flow
-   for the same mod entry. Migrating from broken v1.0.0 requires the new archive to
-   be processed by the installer; redeploying its existing files cannot repair the layout.
-3. Keep the original HUDTweaks mod enabled. The new overlay should use Vortex's
-   **Root (game folder)** type, not ReShade Preset.
-4. Enable this overlay and let it win the active `HUDTweaks/Scripts/HUDTweaks.ini`
-   conflict, then deploy. Disable this overlay and redeploy to uninstall.
+1. Close the game and back up any customized HUDTweaks.ini.
+2. Keep original HUDTweaks v4 enabled. Replace/reinstall the existing Prompt Dismissal
+   Fix entry from this ZIP, rather than creating another installed variant.
+3. Select **Root (game folder)**. This overlay must win **both** conflicts:
+   `HUDTweaks/Scripts/HUDTweaks.ini` and `HUDTweaks/Scripts/main.lua`.
+4. Deploy with Vortex and fully restart the game. Redeploying the older installed
+   entry alone cannot add the new Lua payload or read updated version metadata.
 
-The only INI in the archive has this explicit game-root-relative destination:
+Both payloads use the explicit archive prefix
+`Dawnwalker/Binaries/Win64/ue4ss/Mods/`. Do not use ReShade Preset.
+The original mod supplies enabled.txt and remains required. Current Controller
+Tweaks 1.3.0+ is independent and has no HUDTweaks file conflicts; earlier controller
+compass or standalone controller-compatibility entries must remain disabled.
 
-```text
-Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/HUDTweaks.ini
-```
+If upgrading from broken 1.0.0 packaging, disable/remove that entry and deploy in
+Vortex to remove the misplaced INI beside Dawnwalker.exe before reinstalling.
 
-Version 1.0.0 used `Data/HUDTweaks/Scripts/HUDTweaks.ini`. The installed Vortex
-extension misclassified that INI-only layout as a ReShade preset and flattened it to
-`HUDTweaks.ini` beside the executable. Version 1.0.1 selects the game-root installer.
-Root-level `Data/` now contains only a layout note, never a second INI.
+## Configuration and uninstall
 
-If using [Dawnwalker Controller Tweaks](https://github.com/my-mods/Dawnwalker-Controller-Tweaks),
-that mod wins `main.lua`; this overlay wins `HUDTweaks.ini`. They address different files.
+This ZIP replaces the **full v4 INI and main.lua**. It does not automatically merge
+preferences. Exactly three INI values change; all other v4 INI bytes are retained.
+Any later custom preferences should be backed up and reviewed/reapplied explicitly.
+Do not apply this v4 Lua replacement over a future HUDTweaks release without review.
 
-## Scope and limitations
+Disable/remove this overlay and deploy through Vortex to restore original v4 files.
+Leave original HUDTweaks enabled if you still want its functionality.
 
-The patch unsets opacity for `All` and five dynamic prompt sections, allowing the game
-to dismiss them without HUDTweaks repeatedly restoring a nonzero opacity.
-It does not disable tutorials or change game input bindings.
+## Credits and scope
 
-In-game validation remains pending; this release is a prerelease.
-
-## Credits and issues
-
-This is an unofficial compatibility overlay for HUDTweaks, not the original mod.
-The upstream configuration belongs to its respective author; no new license is
-granted to third-party content. Report issues with the game/HUDTweaks versions,
-the affected prompt, and Vortex's INI conflict winner.
-
-## Vortex metadata and updates
-
-The ZIP includes installation metadata, so Vortex sets the display name, version, and description during installation. Runtime payloads and file destinations are unchanged.
-
-Replace/reinstall the updated ZIP through Vortex using the existing mod entry, then deploy. Redeployment alone cannot read new archive metadata. This does not provide automatic update discovery or merge duplicate Vortex entries.
-
-Archive filename: HUDTweaks-Prompt-Dismissal-Fix.zip
+The original HUDTweaks Lua and configuration belong to their author. This repository
+is an unofficial compatibility overlay; it grants no new license over third-party
+content. Only the three INI changes and isolated pawn lookup are maintained here. The upstream world-prompt and quickslot fixes are retained,
+not claimed as local work. Report issues with versions, symptoms, UE4SS.log and both
+Vortex conflict winners.
