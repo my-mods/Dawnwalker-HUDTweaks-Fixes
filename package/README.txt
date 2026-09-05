@@ -35,5 +35,8 @@ Disable/remove this fix in Vortex and deploy again. The original HUDTweaks.ini w
 NOTES
 -----
 This mod does not touch the game installation directly and contains no packaged game assets.
-The currently installed public patch is Hotfix 1.0.2; the local executable identifies itself
-as dw1-pc-257186-shipping-patch2-all.
+Compatibility reference: Steam build 25129649 / executable CL-257186.
+Compatibility with later game/HUDTweaks versions is not established.
+The ZIP contains a full customized INI, not an automatic merge with your preferences.
+Back up your INI and rebuild from it if you want to retain different HUD settings.
+Build-time INI checks pass; live prompt dismissal still needs an in-game check.
