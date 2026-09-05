@@ -1,27 +1,26 @@
-# HUDTweaks - Prompt Dismissal Fix 1.1.0
+# HUD Tweaks - Fixes 1.1.1
 
-Rebase the existing compatibility submod onto HUDTweaks v4 while preserving its
-layout and visual defaults. Restore game-controlled opacity for both HUD prompt
-lines, idle fading while injured, and robust player lookup through loading and
-possession changes. Preserve v4's world-prompt fix and parent-based quickslot layout.
+The former Prompt Dismissal Fix is now **HUD Tweaks - Fixes**. Its scope includes
+prompt dismissal, idle fading while injured and robust player lookup through
+loading/possession changes. Repository history and prior releases are preserved.
 
-Requires original HUDTweaks v4 and its UE4SS loader. No ControllerCompass dependency.
-Replace/reinstall the existing Vortex overlay from HUDTweaks-Prompt-Dismissal-Fix.zip,
-select Root (game folder), and let it win BOTH main.lua and HUDTweaks.ini in
-HUDTweaks/Scripts. Deploy via Vortex and fully restart the game.
+New repository: my-mods/Dawnwalker-HUDTweaks-Fixes.
+New archive: HUDTweaks-Fixes.zip. New manifest ID: HUDTweaksFixes.
+The Lua and INI are byte-for-byte identical to 1.1.0; v4's layout/visuals remain intact.
 
-This contains a full v4 INI and patched Lua replacement, not an automatic preferences
-merge. Back up custom settings. Do not use over later HUDTweaks versions without review.
-Current Controller Tweaks remains independent. Disable the overlay and deploy to
-restore original HUDTweaks files.
+Requires original HUDTweaks v4 and its Dawnwalker-compatible UE4SS installation.
+Replace/reinstall the existing Prompt Dismissal Fix entry in Vortex using this ZIP;
+select Root (game folder). Let HUD Tweaks - Fixes win BOTH main.lua and HUDTweaks.ini
+under HUDTweaks/Scripts, deploy and fully restart the game. If Vortex creates a
+separate entry, disable/remove the old overlay and deploy with Vortex; keep only one
+fixes overlay enabled. The renamed ZIP does not automatically merge installed entries.
 
-Validation: full Lua 5.4 compilation; mocked startup/client restart and player
-lifecycle regressions; malformed/throwing lookup recovery; prompt opacity and fade
-exclusion checks; exact three-value INI diff; isolated Lua patch; upstream drift
-rejection; actual-ZIP allowlist and bytes; two consecutive stable-name builds;
-installed Vortex 2.6.3 installer and metadata planning against mocked state.
+This is still a full INI and Lua replacement, not an automatic preferences merge.
+Back up custom settings. Current Controller Tweaks remains independent. Disable this
+overlay and deploy to restore original HUDTweaks files. Do not apply over newer
+HUDTweaks versions without review.
 
-Prerelease: not installed or tested in game by this build. Acceptance checks remain
-prompt dismissal, drawing/sheathing quickslot position, dialogue dismissal,
-injured idle fading, and loading/save/possession transitions. Captured installed
-Steam build 25129649 / CL-257186; no broader current-patch compatibility claim.
+Validation: unchanged runtime hashes versus 1.1.0, actual ZIP allowlist and metadata,
+two builds using the new stable filename, and installed Vortex destination planning.
+The existing Lua 5.4/lifecycle regressions remain applicable. In-game prompt dismissal,
+injured idle fade, and loading/possession checks remain pending; retained as prerelease.

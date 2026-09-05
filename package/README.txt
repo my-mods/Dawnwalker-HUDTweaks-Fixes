@@ -1,6 +1,6 @@
-HUDTweaks - Prompt Dismissal Fix
+HUD Tweaks - Fixes
 
-Compatibility submod for **HUDTweaks v4** in The Blood of Dawnwalker. Version 1.1.0
+Fixes and compatibility backports for **HUDTweaks v4** in The Blood of Dawnwalker. Version 1.1.1
 preserves v4's layout and visual defaults while restoring the missing local fixes:
 
 - Let the game control both HUD prompt lines' opacity, so dismissing a prompt is not undone.
@@ -13,18 +13,19 @@ ControllerCompass feature is not included or required.
 
  Download and install
 
-Get **HUDTweaks-Prompt-Dismissal-Fix.zip** from
-[Releases](https://github.com/my-mods/Dawnwalker-HUDTweaks-Prompt-Fix/releases).
+Get **HUDTweaks-Fixes.zip** from
+[Releases](https://github.com/my-mods/Dawnwalker-HUDTweaks-Fixes/releases).
 GitHub's source-code archives are not installable mods.
 
 Requires original HUDTweaks **v4** and its Dawnwalker-compatible UE4SS loader.
 Captured against installed Steam build 25129649 / executable CL-257186. Later
-HUDTweaks and game versions require review. Release 1.1.0 is a prerelease pending
+HUDTweaks and game versions require review. Release 1.1.1 is a prerelease pending
 in-game validation.
 
 1. Close the game and back up any customized HUDTweaks.ini.
-2. Keep original HUDTweaks v4 enabled. Replace/reinstall the existing Prompt Dismissal
-   Fix entry from this ZIP, rather than creating another installed variant.
+2. Keep original HUDTweaks v4 enabled. Use Vortex's replace/reinstall flow on your
+   existing Prompt Dismissal Fix entry with this ZIP. The new metadata names it
+   **HUD Tweaks - Fixes**. Keep one resulting entry enabled.
 3. Select **Root (game folder)**. This overlay must win **both** conflicts:
    `HUDTweaks/Scripts/HUDTweaks.ini` and `HUDTweaks/Scripts/main.lua`.
 4. Deploy with Vortex and fully restart the game. Redeploying the older installed
@@ -38,6 +39,20 @@ compass or standalone controller-compatibility entries must remain disabled.
 
 If upgrading from broken 1.0.0 packaging, disable/remove that entry and deploy in
 Vortex to remove the misplaced INI beside Dawnwalker.exe before reinstalling.
+
+ Rename and migration
+
+Version 1.1.1 renames **Prompt Dismissal Fix** to **HUD Tweaks - Fixes** to reflect
+the broader scope. The repository is now `my-mods/Dawnwalker-HUDTweaks-Fixes`, the
+archive is `HUDTweaks-Fixes.zip`, and the internal manifest ID is `HUDTweaksFixes`.
+The existing repository, commits and historical releases are preserved. Runtime
+Lua and INI payloads are byte-for-byte identical to 1.1.0.
+
+The new filename does not automatically merge Vortex entries. If Vortex imports a
+separate entry, disable/remove the old Prompt Dismissal Fix entry and deploy through
+Vortex, then enable this one and set both conflict winners. Do not run both overlays.
+Replacing/reinstalling also lets Vortex remove the old package layout note; ordinary
+redeployment cannot read the new archive name/version metadata.
 
  Configuration and uninstall
 

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mod>
   <info>
-    <name>HUDTweaks - Prompt Dismissal Fix</name>
-    <modid>HUDTweaksPromptDismissalFix</modid>
-    <description>HUDTweaks v4 compatibility: prompt dismissal, idle fading while injured, and possession-safe player lookup.</description>
+    <name>HUD Tweaks - Fixes</name>
+    <modid>HUDTweaksFixes</modid>
+    <description>Fixes and compatibility backports for HUDTweaks v4: reliable prompt dismissal, idle fading while injured, and robust player detection through loading and possession changes. Preserves the upstream HUD layout.</description>
     <author>Local compatibility fix</author>
-    <version>1.1.0</version>
+    <version>1.1.1</version>
     <created_on>2026-09-05</created_on>
   </info>
   <supports>

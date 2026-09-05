@@ -1,7 +1,7 @@
 {
   "game": "The Blood of Dawnwalker",
-  "modVersion": "1.1.0",
-  "releaseArchive": "HUDTweaks-Prompt-Dismissal-Fix.zip",
+  "modVersion": "1.1.1",
+  "releaseArchive": "HUDTweaks-Fixes.zip",
   "vortexInstaller": "root",
   "iniArchivePath": "Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/HUDTweaks.ini",
   "steamBuild": "25129649",
@@ -27,5 +27,16 @@
     "changes": "Revalidate possession, require a local non-default controller, guard FindAllOf, retry transient failures",
     "sourceRepository": "my-mods/Dawnwalker-Controller-Tweaks",
     "referenceTag": "v1.1.5"
+  },
+  "modName": "HUD Tweaks - Fixes",
+  "repository": "my-mods/Dawnwalker-HUDTweaks-Fixes",
+  "rename": {
+    "version": "1.1.1",
+    "previousName": "HUDTweaks - Prompt Dismissal Fix",
+    "previousRepository": "my-mods/Dawnwalker-HUDTweaks-Prompt-Fix",
+    "previousArchive": "HUDTweaks-Prompt-Dismissal-Fix.zip",
+    "previousModId": "HUDTweaksPromptDismissalFix",
+    "reason": "User-requested rename to reflect broader fixes; existing history retained.",
+    "runtimeChanges": "None; INI and Lua bytes unchanged from 1.1.0."
   }
 }

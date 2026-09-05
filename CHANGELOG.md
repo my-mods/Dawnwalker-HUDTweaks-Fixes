@@ -1,5 +1,13 @@
 # Changes
 
+## 1.1.1 — 2026-09-05
+
+- Rename the mod to HUD Tweaks - Fixes to reflect the broader scope.
+- Rename the repository to my-mods/Dawnwalker-HUDTweaks-Fixes, archive to
+  HUDTweaks-Fixes.zip and manifest ID to HUDTweaksFixes.
+- Update descriptions, Vortex metadata, packaging and migration documentation.
+- Preserve repository history, prior releases and unchanged 1.1.0 runtime payloads.
+
 ## 1.1.0 — 2026-09-05
 
 - Rebase on HUDTweaks v4, retaining its layout and visual defaults.

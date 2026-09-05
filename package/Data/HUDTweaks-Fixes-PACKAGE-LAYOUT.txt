@@ -1,4 +1,4 @@
-HUDTweaks Prompt Dismissal Fix package layout
+HUD Tweaks - Fixes package layout
 
 Both payloads use explicit game-relative paths beneath:
 Dawnwalker/Binaries/Win64/ue4ss/Mods/HUDTweaks/Scripts/
