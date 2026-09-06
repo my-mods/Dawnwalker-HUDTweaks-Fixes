@@ -279,23 +279,24 @@ local function Debug(fmt, ...)
 	if S.debugLogs then Log(fmt, ...) end
 end
 
--- Every timer in this file goes through here. ExecuteWithDelay fires its callback from a UE4SS
--- thread, not the game thread, and everything those callbacks do is write to widgets - which
--- races the engine and, rarely, faults inside UE4SS.dll in a way pcall cannot catch. Builds that
--- have ExecuteInGameThreadWithDelay get the callback marshalled onto the game thread instead;
--- the timing is no worse and the writes stop being a race. Same shape as AnalogMovement's Defer.
+-- All delayed game-object work runs on the game thread. The legacy setting cannot
+-- opt back into unsafe widget access. Keep each caller's existing delay/cadence.
+local timerWarning = false
 local function Defer(ms, fn, gameThread)
-	-- `gameThread` is asked for by the callers that WRITE widgets on a clock - the ease chains,
-	-- the re-check, the force loop - and honoured when gameThreadTimers is on and the build has
-	-- ExecuteInGameThreadWithDelay. The probe chain and the heavy passes stay on UE4SS's thread:
-	-- the probes cost ~8ms a call, which on the game thread is half a frame every 100ms. (The
-	-- first try put EVERYTHING on the game thread while a step still cost 146ms - hence the
-	-- stutter that got it switched off. With ease steps at 0.5ms the writers belong there.)
-	if gameThread and S.gameThreadTimers and type(ExecuteInGameThreadWithDelay) == "function" then
-		ExecuteInGameThreadWithDelay(ms, function() pcall(fn) end)
-	else
-		ExecuteWithDelay(ms, function() pcall(fn) end)
-	end
+    local generation = applyGeneration
+    local function run()
+        if generation ~= applyGeneration then return end
+        pcall(fn)
+    end
+    if type(ExecuteInGameThreadWithDelay) == "function" then
+        ExecuteInGameThreadWithDelay(ms, run)
+    elseif type(ExecuteInGameThread) == "function" and type(ExecuteWithDelay) == "function" then
+        -- The asynchronous timer only queues work; it never reads a widget.
+        ExecuteWithDelay(ms, function() ExecuteInGameThread(run) end)
+    elseif not timerWarning then
+        timerWarning = true
+        Log("Delayed HUD updates require game-thread scheduling; update UE4SS.")
+    end
 end
 
 local function Trim(s)
@@ -2411,23 +2412,59 @@ local function WidgetIsShown(obj)
 	return opacity == nil or opacity > 0.01
 end
 
+-- Cache discovered watch widgets and subscribe to their exact class. Empty or
+-- unsupported classes retain the original probe cadence until they can be watched.
+local shownCache, shownHooks = {}, {}
 local function AnyShown(className)
-	local ok, list = pcall(FindAllOf, className)
-	if not ok then return nil end
-
-	-- UE4SS hands back nil rather than an empty table when a class has no live instances, and
-	-- that is an ANSWER - "none on screen" - not a failure to read. Reporting it as unreadable is
-	-- how eight perfectly healthy watch entries ended up in a COULD NOT READ line looking like
-	-- broken names. The cost of the distinction is that a typo'd class name is indistinguishable
-	-- from one that is simply never up; the scan key is what settles that.
-	if list == nil then return false end
-
-	for _, obj in pairs(list) do
-		if IsValidObject(obj) and not IsDefaultObject(obj) and WidgetIsShown(obj) then
-			return true
-		end
-	end
-	return false
+    local cache = shownCache[className]
+    if cache == nil or cache.generation ~= applyGeneration then
+        cache = {generation = applyGeneration, objects = {}}
+        shownCache[className] = cache
+    end
+    if not cache.seeded or not shownHooks[className] then
+        local ok, list = pcall(FindAllOf, className)
+        if not ok or (list ~= nil and type(list) ~= "table") then return nil end
+        cache.objects = list or {}
+        cache.seeded = true
+        if not shownHooks[className] and type(NotifyOnNewObject) == "function" then
+            for _, obj in pairs(cache.objects) do
+                if IsValidObject(obj) and not IsDefaultObject(obj) then
+                    local valid, path = pcall(function()
+                        local cls = obj:GetClass()
+                        -- A derived-class notification cannot cover a base-class watch.
+                        if cls:GetFName():ToString() ~= className then return nil end
+                        return string.match(cls:GetFullName(), "^%S+ (.+)$")
+                    end)
+                    if valid and path then
+                        local registered = pcall(NotifyOnNewObject, path, function(created)
+                            -- Construction notifications may run before the widget is ready.
+                            Defer(0, function()
+                                local current = shownCache[className]
+                                if current == nil or current.generation ~= applyGeneration then return end
+                                if IsValidObject(created) and not IsDefaultObject(created) then
+                                    for _, known in pairs(current.objects) do
+                                        if known == created then return end
+                                    end
+                                    current.objects[#current.objects + 1] = created
+                                end
+                            end)
+                        end)
+                        if registered then shownHooks[className] = true end
+                        break
+                    end
+                end
+            end
+        end
+    end
+    local live, shown = {}, false
+    for _, obj in pairs(cache.objects) do
+        if IsValidObject(obj) and not IsDefaultObject(obj) then
+            live[#live + 1] = obj
+            if not shown and WidgetIsShown(obj) then shown = true end
+        end
+    end
+    cache.objects = live
+    return shown
 end
 
 -- Each probe returns true (something is happening), false (nothing is), or nil (could not tell).
@@ -2964,7 +3001,7 @@ local EaseChain
 
 EaseChain = function(generation)
 	Defer(S.fadeStepMs, function()
-		-- (on the game thread when allowed: this callback writes forty widgets)
+		-- This callback only updates cached widgets on the game thread.
 		if generation ~= applyGeneration or not Differs(fadeLevel, fadeWant) then
 			fadeEaseChains = math.max(0, fadeEaseChains - 1)
 			return
@@ -3320,7 +3357,7 @@ function BindKeys()
 			return
 		end
 
-		if pcall(function() RegisterKeyBind(key, function() action() end) end) then
+		if pcall(function() RegisterKeyBind(key, function() Defer(0, action) end) end) then
 			boundKeys[name] = true
 			Log("%s bound to %s", label, name)
 		end
@@ -3486,7 +3523,7 @@ function HookNewObjects()
 				local specKey = spec.key
 				NotifyOnNewObject(spec.path, function(obj)
 					if not S.enabled or suspended then return end
-					pcall(TweakInstance, obj, specKey)
+					Defer(0, function() pcall(TweakInstance, obj, specKey) end)
 					for _, seconds in ipairs(S.newObjectFollowUps or {}) do
 						local delay = math.floor(seconds * 1000)
 						Defer(delay, function() pcall(TweakInstance, obj, specKey) end)
@@ -3648,6 +3685,7 @@ else
 	Log("  autoFade=off. Turn it on with [AutoFade] enabled = true in %s.", INI_NAME)
 end
 
+Defer(0, function()
 BindKeys()
 HookNewObjects()
 HookReassertAfter()
@@ -3655,12 +3693,21 @@ HookFadeFrame()
 
 RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
 	Debug("client restart")
+	-- Retire queued widget work immediately, before the delayed HUD rebuild.
+	applyGeneration = applyGeneration + 1
+	rootCache = {}
+	fadePlayer, compatibilityController, fadeCombatSub = nil, nil, nil
+	ResetFade()
 
 	if not beginPlayHooked then
 		beginPlayHooked = pcall(function()
 			RegisterHook(BEGIN_PLAY, function()
 				-- The HUD is built around here. A level transition comes back through here too,
 				-- with a brand new set of widgets, so everything we held is stale.
+				applyGeneration = applyGeneration + 1
+				rootCache = {}
+				fadePlayer, compatibilityController, fadeCombatSub = nil, nil, nil
+				ResetFade()
 				PurgeDead()
 				Defer(2000, function() ApplySequence("begin play") end)
 			end)
@@ -3686,3 +3733,4 @@ if S.startImmediately then
 		Defer(ms, function() pcall(PatchClassDefaults) end)
 	end
 end
+end)

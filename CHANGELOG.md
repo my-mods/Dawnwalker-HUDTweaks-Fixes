@@ -1,5 +1,9 @@
 # Changes
 
+## Unreleased
+
+- Fix unsafe HUD widget updates that could cause crashes during loading or combat.
+
 ## 1.1.3 â€” 2026-09-05
 
 - Slow auto-fade state checks from a 0.1-second delay to 0.5 seconds.
