@@ -279,25 +279,247 @@ local function Debug(fmt, ...)
 	if S.debugLogs then Log(fmt, ...) end
 end
 
--- All delayed game-object work runs on the game thread. The legacy setting cannot
--- opt back into unsafe widget access. Keep each caller's existing delay/cadence.
-local timerWarning = false
-local function Defer(ms, fn, gameThread)
-    local generation = applyGeneration
-    local function run()
-        if generation ~= applyGeneration then return end
-        pcall(fn)
+-- One shared game-thread dispatcher; checkpoints never retain borrowed structs.
+local Work = {forced = {}, fading = {}, queue = {}, keyed = {}, active = {}, token = 0, due = nil,
+    frame = nil, units = 0, started = 0, current = nil, clock = nil, attempts = 0,
+    stats = {slices = 0, maxMs = 0, maxUnits = 0, coalesced = 0}}
+local Pump, Arm
+local function BudgetStep()
+    if Work.current ~= coroutine.running() then return end
+    while Work.units >= 128 or os.clock() - Work.started >= 0.001 do coroutine.yield() end
+    Work.units = Work.units + 1
+end
+local function Defer(ms, fn, urgent, key, persistent)
+    local old = key ~= nil and Work.keyed[key] or nil
+    if old and (old.generation == false or old.generation == applyGeneration) then
+        Work.stats.coalesced = Work.stats.coalesced + 1
+        return
     end
-    if type(ExecuteInGameThreadWithDelay) == "function" then
-        ExecuteInGameThreadWithDelay(ms, run)
-    elseif type(ExecuteInGameThread) == "function" and type(ExecuteWithDelay) == "function" then
-        -- The asynchronous timer only queues work; it never reads a widget.
-        ExecuteWithDelay(ms, function() ExecuteInGameThread(run) end)
-    elseif not timerWarning then
-        timerWarning = true
-        Log("Delayed HUD updates require game-thread scheduling; update UE4SS.")
+    local job = {fn = fn, due = os.clock() + math.max(ms, 0) / 1000,
+        generation = (not persistent) and applyGeneration, lane = urgent and 1 or 2, key = key}
+    Work.queue[#Work.queue + 1] = job
+    if key ~= nil then Work.keyed[key] = job end
+    Arm(ms)
+end
+Arm = function(ms)
+    local due = os.clock() + math.max(ms, 1) / 1000
+    if Work.due and Work.due <= due then return end
+    Work.token = Work.token + 1
+    local token = Work.token
+    Work.due = due
+    local run = function()
+        if token ~= Work.token then return end
+        Work.due = nil
+        Pump()
+    end
+    if type(ExecuteInGameThreadWithDelay) == 'function' then
+        ExecuteInGameThreadWithDelay(math.max(ms, 1), run)
+    elseif type(ExecuteInGameThread) == 'function' and type(ExecuteWithDelay) == 'function' then
+        ExecuteWithDelay(math.max(ms, 1), function() ExecuteInGameThread(run) end)
+    else
+        Work.due = nil
+        if not Work.warned then Log('HUD scheduling requires game-thread callbacks.'); Work.warned = true end
     end
 end
+local function FrameNumber()
+    if Work.clock == nil then
+        if Work.attempts >= 3 then return nil end
+        Work.attempts = Work.attempts + 1
+        local ok, lib = pcall(StaticFindObject, '/Script/Engine.Default__KismetSystemLibrary')
+        if ok then Work.clock = lib end
+    end
+    local ok, frame = pcall(function()
+        if Work.clock and Work.clock:IsValid() then return Work.clock:GetFrameCount() end
+    end)
+    if ok and type(frame) == 'number' then return frame end
+    Work.clock = nil
+    return nil
+end
+Pump = function()
+    local frame = FrameNumber()
+    if frame == nil then
+        if Work.attempts < 3 then Arm(250)
+        elseif not Work.warned then
+            Log('HUD updates paused: frame counter unavailable; check UE4SS compatibility.')
+            Work.warned = true
+        end
+        return
+    end
+    -- Timer expiry is not proof of a new frame: share the budget across all wakes.
+    if frame == Work.frame then Arm(16); return end
+    Work.frame, Work.units, Work.started = frame, 0, os.clock()
+    local now = os.clock()
+    for lane = 1, 2 do
+        local job = Work.active[lane]
+        if job and job.generation ~= false and job.generation ~= applyGeneration then
+            if job.key ~= nil and Work.keyed[job.key] == job then Work.keyed[job.key] = nil end
+            Work.active[lane] = nil
+        end
+        while Work.units < 128 and os.clock() - Work.started < 0.001 do
+            job = Work.active[lane]
+            if not job then
+                for i = #Work.queue, 1, -1 do
+                    local candidate = Work.queue[i]
+                    if candidate.generation ~= false and candidate.generation ~= applyGeneration then
+                        if candidate.key ~= nil and Work.keyed[candidate.key] == candidate then Work.keyed[candidate.key] = nil end
+                        table.remove(Work.queue, i)
+                    end
+                end
+                for i, candidate in ipairs(Work.queue) do
+                    if candidate.lane == lane and candidate.due <= now then
+                        job = table.remove(Work.queue, i)
+                        job.thread = coroutine.create(job.fn)
+                        Work.active[lane] = job
+                        break
+                    end
+                end
+            end
+            if not job then break end
+            Work.units = Work.units + 1
+            Work.current = job.thread
+            local ok, err = coroutine.resume(job.thread)
+            Work.current = nil
+            if not ok or coroutine.status(job.thread) == 'dead' then
+                if job.key ~= nil and Work.keyed[job.key] == job then Work.keyed[job.key] = nil end
+                Work.active[lane] = nil
+                if not ok then Log('HUD job stopped: %s', tostring(err)) end
+            else break end
+        end
+    end
+    Work.stats.slices = Work.stats.slices + 1
+    Work.stats.maxMs = math.max(Work.stats.maxMs, (os.clock() - Work.started) * 1000)
+    Work.stats.maxUnits = math.max(Work.stats.maxUnits, Work.units)
+    local delay = (Work.active[1] or Work.active[2]) and 1 or nil
+    for _, job in ipairs(Work.queue) do
+        local remaining = math.max(1, math.ceil((job.due - os.clock()) * 1000))
+        delay = delay and math.min(delay, remaining) or remaining
+    end
+    if delay then Arm(delay) end
+end
+
+local function RetireWork()
+    applyGeneration = applyGeneration + 1
+    for _, job in pairs(Work.active) do
+        if job.thread == Work.current then job.generation = applyGeneration end
+    end
+    if Work.clock == nil then Work.attempts = 0; Work.warned = false end
+end
+
+-- Construction-driven index. No global object-array searches, including empty watches.
+-- Captured objects are checked later, after construction, on the game thread.
+local ObjectIndex = {classes = {}, entries = {}, hooks = {}, pending = {}, attempts = {}, owner = nil, world = nil}
+local function SameOwner(a, b)
+    return a == b or (a:IsValid() and b:IsValid() and a:GetAddress() == b:GetAddress())
+end
+local function CurrentEntry(entry)
+    local ok, live = pcall(function()
+        return entry.obj:IsValid()
+            and (not entry.world or not ObjectIndex.world or SameOwner(entry.world, ObjectIndex.world))
+            and (not entry.owner or not ObjectIndex.owner or SameOwner(entry.owner, ObjectIndex.owner))
+    end)
+    return ok and live
+end
+local function IndexedWorld(obj)
+    for _ = 1, 8 do
+        if not obj or not obj:IsValid() then return nil end
+        if obj:GetClass():GetFName():ToString() == 'World' then return obj end
+        obj = obj:GetOuter()
+    end
+end
+function ObjectIndex.add(obj)
+    BudgetStep()
+    local ok, names, world, owner = pcall(function()
+        if not obj or not obj:IsValid() then return nil end
+        local full = obj:GetFullName()
+        if string.find(full, 'Default__', 1, true) then return nil end
+        local chain, cls, isWidget = {}, obj:GetClass(), false
+        for _ = 1, 32 do
+            if not cls or not cls:IsValid() then break end
+            local name = cls:GetFName():ToString()
+            chain[#chain + 1] = name
+            if name == 'UserWidget' then isWidget = true end
+            cls = cls:GetSuperStruct()
+        end
+        local hasWorld, w = pcall(IndexedWorld, obj)
+        if not hasWorld then w = nil end
+        local player
+        if isWidget then
+            local hasOwner, candidate = pcall(function() return obj:GetOwningPlayer() end)
+            if hasOwner and candidate and candidate:IsValid() then player = candidate end
+        end
+        return chain, w, player
+    end)
+    if not ok or not names then return end
+    local entry = {obj = obj, world = world, owner = owner, names = names}
+    if not CurrentEntry(entry) then return end
+    ObjectIndex.entries[obj] = entry
+    for _, name in ipairs(names) do
+        local list = ObjectIndex.classes[name]
+        if not list then list = {}; ObjectIndex.classes[name] = list end
+        list[obj] = entry
+    end
+    if ObjectIndex.widget then
+        for _, name in ipairs(names) do
+            if name == 'UserWidget' then ObjectIndex.widget(obj, names); break end
+        end
+    end
+end
+function ObjectIndex.capture(obj)
+    ObjectIndex.pending[obj] = true
+    Defer(0, function()
+        while next(ObjectIndex.pending) do
+            BudgetStep()
+            local object = next(ObjectIndex.pending)
+            ObjectIndex.pending[object] = nil
+            ObjectIndex.add(object)
+        end
+    end, false, 'object-index', true)
+end
+function ObjectIndex.get(name)
+    local result, list = {}, ObjectIndex.classes[name]
+    if not list then return result end
+    for obj, entry in pairs(list) do
+        BudgetStep()
+        if CurrentEntry(entry) then result[#result + 1] = obj else list[obj] = nil end
+    end
+    return result
+end
+function ObjectIndex.prune(replay)
+    for obj, entry in pairs(ObjectIndex.entries) do
+        BudgetStep()
+        if not CurrentEntry(entry) then
+            ObjectIndex.entries[obj] = nil
+            for _, name in ipairs(entry.names) do ObjectIndex.classes[name][obj] = nil end
+        elseif replay and ObjectIndex.widget then
+            ObjectIndex.widget(obj, entry.names)
+        end
+    end
+end
+function ObjectIndex.context(controller)
+    local ok, localPlayer = pcall(function() return controller:IsValid() and controller:IsLocalController() end)
+    if not ok or not localPlayer then return end
+    ObjectIndex.attempts = {}
+    ObjectIndex.owner = controller
+    local found, world = pcall(IndexedWorld, controller)
+    ObjectIndex.world = found and world or nil
+    ObjectIndex.capture(controller)
+    local valid, pawn = pcall(function() return controller.Pawn end)
+    if valid and pawn then ObjectIndex.capture(pawn) end
+end
+function ObjectIndex.start()
+    for _, path in ipairs({'/Script/UMG.UserWidget', '/Script/Engine.PlayerController',
+        '/Script/Engine.WorldSubsystem', '/Script/Engine.GameInstanceSubsystem'}) do
+        if not ObjectIndex.hooks[path] and (ObjectIndex.attempts[path] or 0) < 3 then
+            ObjectIndex.attempts[path] = (ObjectIndex.attempts[path] or 0) + 1
+            ObjectIndex.hooks[path] = pcall(NotifyOnNewObject, path, ObjectIndex.capture)
+            if not ObjectIndex.hooks[path] and ObjectIndex.attempts[path] == 3 then
+                Log('HUD discovery unavailable for %s; check UE4SS compatibility.', path)
+            end
+        end
+    end
+end
+-- All existing lookups now use the index, including player/subsystem recovery.
+local FindAllOf = ObjectIndex.get
 
 local function Trim(s)
 	if s == nil then return "" end
@@ -414,6 +636,7 @@ local function LoadIni()
 
 	local file = nil
 	for _, candidate in ipairs(IniCandidates()) do
+	    BudgetStep()
 		local handle = io.open(candidate, "r")
 		if handle ~= nil then
 			file    = handle
@@ -441,6 +664,7 @@ local function LoadIni()
 
 	local ok = pcall(function()
 		for line in file:lines() do
+		    BudgetStep()
 			lineNo = lineNo + 1
 			local text = Trim(line)
 
@@ -536,6 +760,7 @@ local function GetList(section, key, default)
 
 	local list = {}
 	for item in string.gmatch(value, "[^,]+") do
+	    BudgetStep()
 		item = Trim(item)
 		if item ~= "" then list[#list + 1] = item end
 	end
@@ -554,6 +779,7 @@ local function GetNumberList(section, key, default)
 
 	local list = {}
 	for item in string.gmatch(raw, "[^,]+") do
+	    BudgetStep()
 		local number = tonumber(Trim(item))
 		if number ~= nil then list[#list + 1] = number end
 	end
@@ -633,6 +859,7 @@ local function ResolveSettings()
 	-- extraRoots ADDS to the list instead of replacing it, so one more widget class does not
 	-- mean restating all eighteen defaults in the ini. Same format: full class paths.
 	for _, raw in ipairs(GetList("General", "extraRoots", {})) do
+	    BudgetStep()
 		S.roots[#S.roots + 1] = raw
 	end
 	-- The menus, kept as their own list so that turning them off is one switch rather than an
@@ -656,6 +883,7 @@ local function ResolveSettings()
 	-- Elements that get the [All] values without needing a section of their own.
 	S.elementSet = {}
 	for _, name in ipairs(GetList("General", "elements", {})) do
+	    BudgetStep()
 		S.elementSet[string.lower(Trim(name))] = true
 	end
 
@@ -687,6 +915,7 @@ local function ResolveSettings()
 	-- element you are fighting the game over.
 	S.trace = {}
 	for _, name in ipairs(GetList("General", "trace", {})) do
+	    BudgetStep()
 		S.trace[#S.trace + 1] = string.lower(Trim(name))
 	end
 	S.identifyMs = math.floor(GetNum("General", "identifyBlinkSeconds", 0.4) * 1000)
@@ -757,6 +986,7 @@ local function ResolveSettings()
 	local probeKeys = { "showInCombat", "showWeaponDrawn", "showWhenLockedOn", "showInFocusMode",
 	                    "showWhenAiming", "showWhenHurt", "showOnStatChange" }
 	for _, key in ipairs(probeKeys) do
+	    BudgetStep()
 		S.probeAfter[key] = math.max(0.0, GetNum("AutoFade", key .. "After", 0.0))
 	end
 	S.showWhenHurt     = GetBool("AutoFade", "showWhenHurt", true)
@@ -767,10 +997,12 @@ local function ResolveSettings()
 	-- these named pieces instead, which is what makes "everything except the compass" possible.
 	S.fadeElements = {}
 	for _, name in ipairs(GetList("AutoFade", "fadeElements", {})) do
+	    BudgetStep()
 		S.fadeElements[#S.fadeElements + 1] = string.lower(Trim(name))
 	end
 	S.fadeExclude = {}
 	for _, name in ipairs(GetList("AutoFade", "exclude", {})) do
+	    BudgetStep()
 		S.fadeExclude[#S.fadeExclude + 1] = string.lower(Trim(name))
 	end
 
@@ -781,6 +1013,7 @@ local function ResolveSettings()
 	local allSection = ini["all"]
 	if allSection ~= nil then
 		for _ in pairs(allSection) do
+		    BudgetStep()
 			S.allActive = true
 			break
 		end
@@ -825,6 +1058,8 @@ end
 -- Everything we are ever going to touch, in one flat table. Taken once per widget, before we
 -- write anything, and never taken again - that is the whole compounding defence.
 local function ReadState(widget)
+    BudgetStep()
+	if not IsValidObject(widget) then return {} end
 	local st = { tx = 0.0, ty = 0.0, sx = 1.0, sy = 1.0, angle = 0.0, px = 0.5, py = 0.5 }
 
 	pcall(function()
@@ -938,6 +1173,11 @@ end
 -- written when it already holds the value we want, so the re-assert timer is free in the normal
 -- case where nothing has reset us.
 local function WriteState(entry, target, why)
+    BudgetStep()
+	if entry.key and vanilla[entry.key] == entry and target == entry.target then
+		Work.forced[entry.key] = entry.force and entry or nil
+		Work.fading[entry.key] = entry.fadeAllowed and entry or nil
+	end
 	local widget = entry.obj
 	if not IsValidObject(widget) or target == nil then return nil end
 
@@ -1147,6 +1387,8 @@ local function ChildrenOf(widget)
 			count = Num(value, 0)
 		end
 		for i = 0, count - 1 do
+		    BudgetStep()
+			if not IsValidObject(widget) then return list end
 			local childOk, child = pcall(_childAt, widget, i)
 			if childOk and IsValidObject(child) then list[#list + 1] = child end
 		end
@@ -1164,6 +1406,8 @@ local function PathSeg(name)
 end
 
 local function Visit(widget, parentName, depth, seen, rootKey, parentPath)
+    BudgetStep()
+	if not IsValidObject(widget) then return nil end
 	local key = SafeName(widget)
 	if seen[key] then return nil end
 	seen[key] = true
@@ -1201,6 +1445,8 @@ end
 -- Nothing validates the widget here: both callers already did. ChildrenOf only ever returns
 -- children that passed IsValidObject, and CollectWidgets checks each root before it starts.
 local function WalkWidget(widget, parentName, depth, seen, rootKey, parentPath)
+    BudgetStep()
+	if not IsValidObject(widget) then return end
 	if depth > S.maxDepth then return end
 	if #discovered >= S.maxWidgets then return end
 
@@ -1210,6 +1456,7 @@ local function WalkWidget(widget, parentName, depth, seen, rootKey, parentPath)
 	local path = entry.ppath
 	path = (path == "" and "" or (path .. "/")) .. PathSeg(entry.name)
 	for _, child in ipairs(ChildrenOf(widget)) do
+	    BudgetStep()
 		WalkWidget(child, entry.name, depth + 1, seen, rootKey, path)
 	end
 end
@@ -1225,55 +1472,11 @@ end
 local rootCache = {}   -- [lowered class name] = { generation = n, list = { widget, ... } }
 
 local function RememberRoot(widget)
-	if not IsValidObject(widget) or IsDefaultObject(widget) then return end
-
-	local key    = string.lower(SafeClassName(widget))
-	local cached = rootCache[key]
-	if cached == nil then
-		rootCache[key] = { generation = applyGeneration, list = { widget } }
-		return
-	end
-
-	-- Several instances of a class are normal here - one input hint per prompt on screen - so a
-	-- new one joins the list instead of replacing it. Dead ones are dropped on the way past.
-	local name, live = SafeName(widget), {}
-	for _, obj in ipairs(cached.list) do
-		if IsValidObject(obj) and SafeName(obj) ~= name then live[#live + 1] = obj end
-	end
-	live[#live + 1] = widget
-	cached.list       = live
-	cached.generation = applyGeneration
+    -- Roots are indexed once by construction notifications.
 end
 
 local function RootsOfClass(className)
-	local lowered = string.lower(className)
-
-	local cached = rootCache[lowered]
-	if cached ~= nil then
-		if #cached.list > 0 then
-			local live = true
-			for _, obj in ipairs(cached.list) do
-				if not IsValidObject(obj) then
-					live = false
-					break
-				end
-			end
-			if live then return cached.list end
-		elseif cached.generation == applyGeneration then
-			return cached.list   -- known-empty, and nothing has happened since we found that out
-		end
-	end
-
-	local list = {}
-	local ok, found = pcall(FindAllOf, className)
-	if ok and found ~= nil then
-		for _, obj in pairs(found) do
-			if IsValidObject(obj) and not IsDefaultObject(obj) then list[#list + 1] = obj end
-		end
-	end
-
-	rootCache[lowered] = { generation = applyGeneration, list = list }
-	return list
+    return ObjectIndex.get(className)
 end
 
 local function CollectWidgets()
@@ -1281,7 +1484,10 @@ local function CollectWidgets()
 	local seen, roots = {}, 0
 
 	for _, spec in ipairs(rootSpecs) do
+
+	    BudgetStep()
 		for _, obj in ipairs(RootsOfClass(spec.class)) do
+		    BudgetStep()
 			roots = roots + 1
 			WalkWidget(obj, "", 0, seen, spec.key)
 		end
@@ -1365,6 +1571,8 @@ local function SectionMatches(entry, want)
 		if #wants > #have then return false end
 
 		for i = 0, #wants - 1 do
+
+		    BudgetStep()
 			local h = have[#have - i]
 			local w = (string.gsub(wants[#wants - i], "_c$", ""))   -- WBP_GameHUD_C == WBP_GameHUD
 			if string.find(w, "*", 1, true) ~= nil then
@@ -1396,6 +1604,7 @@ end
 local function ConfiguredSections()
 	local list = {}
 	for lowered, cased in pairs(iniCased) do
+	    BudgetStep()
 		if not RESERVED[lowered] then list[#list + 1] = cased end
 	end
 	table.sort(list, function(a, b) return string.lower(a) < string.lower(b) end)
@@ -1416,6 +1625,8 @@ local function FadeAllowed(entry, rootKey, isTop)
 	if spec ~= nil and spec.menu then return false end
 
 	for _, want in ipairs(S.fadeExclude or {}) do
+
+	    BudgetStep()
 		if SectionMatches(entry, want) then return false end
 	end
 
@@ -1431,6 +1642,7 @@ local function FadeAllowed(entry, rootKey, isTop)
 	-- second and only while actually fading is not a cost worth avoiding.
 	if #(S.fadeElements or {}) > 0 then
 		for _, want in ipairs(S.fadeElements) do
+		    BudgetStep()
 			if SectionMatches(entry, want) then return true end
 		end
 		return false
@@ -1560,6 +1772,7 @@ local function BuildTarget(entry, sections)
 	local force    = false
 	local reveal   = nil
 	for _, section in ipairs(order) do
+	    BudgetStep()
 		if GetBool(section, "enabled", true) == false then live = false end
 		reassert = GetBool(section, "reassert", reassert)
 		if GetBool(section, "force", false) then force = true end
@@ -1575,6 +1788,7 @@ local function BuildTarget(entry, sections)
 	entry.reveal   = reveal
 	entry.trace    = false
 	for _, want in ipairs(S.trace or {}) do
+	    BudgetStep()
 		if SectionMatches(entry, want) then entry.trace = true end
 	end
 	if not live then return nil end
@@ -1602,8 +1816,11 @@ local function ResolveTargets()
 	for i, section in ipairs(sections) do wantSections[i] = string.lower(section) end
 
 	for _, entry in ipairs(discovered) do
+
+	    BudgetStep()
 		entry.identify = false
 		for _, want in ipairs(wantIdentify) do
+		    BudgetStep()
 			if SectionMatches(entry, want) then
 				entry.identify = true
 				blinking[#blinking + 1] = entry.name
@@ -1612,6 +1829,7 @@ local function ResolveTargets()
 
 		local claims = nil
 		for i, section in ipairs(sections) do
+		    BudgetStep()
 			if SectionMatches(entry, wantSections[i]) then
 				claims = claims or {}
 				claims[#claims + 1] = section
@@ -1658,7 +1876,9 @@ local function ResolveTargets()
 			-- a couple of table lookups rather than a walk back up the tree.
 			local depth = entry.depth or 0
 			for _, section in ipairs(claims) do
+			    BudgetStep()
 				for above = 0, depth - 1 do
+				    BudgetStep()
 					local owner = pathSections[above]
 					if owner ~= nil and owner.sections[section] then
 						local key = section .. "|" .. (owner.name or "?") .. "|" .. (entry.name or "?")
@@ -1707,6 +1927,7 @@ local function ResolveTargets()
 
 	local missing = {}
 	for _, section in ipairs(sections) do
+	    BudgetStep()
 		if hits[section] == nil then missing[#missing + 1] = section end
 	end
 	return missing
@@ -1768,6 +1989,8 @@ end
 -- Same as WalkWidget: the callers hand this an object they have already validated, and every
 -- child comes out of ChildrenOf, which validated it.
 local function CollectSubtree(root, list, seen, depth, parentName, parentPath)
+    BudgetStep()
+	if not IsValidObject(root) then return end
 	if depth > S.maxDepth then return end
 	local key = SafeName(root)
 	if seen[key] then return end
@@ -1784,6 +2007,7 @@ local function CollectSubtree(root, list, seen, depth, parentName, parentPath)
 
 	local path = (item.ppath == "" and "" or (item.ppath .. "/")) .. PathSeg(item.name)
 	for _, child in ipairs(ChildrenOf(root)) do
+	    BudgetStep()
 		CollectSubtree(child, list, seen, depth + 1, item.name, path)
 	end
 end
@@ -1813,8 +2037,11 @@ local function BuildInstanceCache(root, classKey, specKey)
 	local cacheGen   = incomplete and -1 or applyGeneration
 
 	for _, item in ipairs(list) do
+
+	    BudgetStep()
 		local claims = nil
 		for _, section in ipairs(sections) do
+		    BudgetStep()
 			if SectionMatches(item, string.lower(section)) then
 				claims = claims or {}
 				claims[#claims + 1] = section
@@ -1901,6 +2128,7 @@ end
 -- Runs once per widget that appears. Everything expensive has already been done by the time a
 -- second instance of that class gets here.
 local function TweakInstance(root, specKey)
+    BudgetStep()
 	if not S.enabled or suspended then return end
 	if not IsValidObject(root) or IsDefaultObject(root) then return end
 
@@ -1935,6 +2163,7 @@ local function TweakInstance(root, specKey)
 
 	local wrote, rootFullName = 0, SafeName(root)
 	for _, item in ipairs(items) do
+	    BudgetStep()
 		local lookup = ROOT_KEY
 		if item.key ~= rootFullName then
 			lookup = NameKey(item.name) .. "|" .. (item.ppath or "")
@@ -1998,10 +2227,12 @@ local function SweepInstances(wanted)
 
 	local found = 0
 	for _, spec in ipairs(rootSpecs) do
+	    BudgetStep()
 		if wanted == nil or wanted(spec) then
 			local ok, list = pcall(FindAllOf, spec.class)
 			if ok and list ~= nil then
 				for _, obj in pairs(list) do
+				    BudgetStep()
 					if IsValidObject(obj) and not IsDefaultObject(obj) then
 						found = found + 1
 						pcall(TweakInstance, obj, spec.key)
@@ -2038,6 +2269,7 @@ local function DumpWidgets()
 
 	local hidden = 0
 	for _, entry in ipairs(discovered) do
+	    BudgetStep()
 		local tooDeep = (S.dumpMaxDepth > 0) and ((entry.depth or 0) > S.dumpMaxDepth)
 		                and entry.target == nil
 		if tooDeep then hidden = hidden + 1 end
@@ -2094,6 +2326,7 @@ function ApplyAll(verbose)
 
 	local touched = 0
 	for _, entry in ipairs(managed) do
+	    BudgetStep()
 		local changed = WriteState(entry, entry.target)
 		if changed ~= nil and #changed > 0 then
 			touched = touched + 1
@@ -2113,11 +2346,14 @@ function ApplyAll(verbose)
 	local claimed, unmatched = ClaimedSections(), {}
 	local rootNames = {}
 	for _, spec in ipairs(rootSpecs) do
+	    BudgetStep()
 		rootNames[spec.key] = true
 		rootNames[string.gsub(spec.key, "_c$", "")] = true
 	end
 
 	for _, section in ipairs(missing) do
+
+	    BudgetStep()
 		if not claimed[section] and not rootNames[string.lower(section)] then
 			unmatched[#unmatched + 1] = section
 		end
@@ -2146,6 +2382,8 @@ local function RestoreAll()
 	fadeLevel, fadeApplied, fadeIdleSince = 1.0, nil, nil
 
 	for _, entry in pairs(written) do
+
+	    BudgetStep()
 		entry.fade = nil
 		if IsValidObject(entry.obj) then
 			local changed = WriteState(entry, entry.snapshot)
@@ -2153,6 +2391,7 @@ local function RestoreAll()
 		end
 	end
 	written = {}
+	Work.forced, Work.fading = {}, {}
 	if restored > 0 then Debug("restored %d widget(s) to vanilla", restored) end
 	return restored
 end
@@ -2162,9 +2401,11 @@ end
 local function PurgeDead()
 	local dropped = 0
 	for key, entry in pairs(vanilla) do
+	    BudgetStep()
 		if not IsValidObject(entry.obj) then
 			vanilla[key] = nil
 			written[key] = nil
+			Work.forced[key], Work.fading[key] = nil, nil
 			dropped = dropped + 1
 		end
 	end
@@ -2184,9 +2425,11 @@ local function ReassertManaged()
 
 	local fixed, sweep = 0, nil
 	for key, entry in pairs(written) do
+	    BudgetStep()
 		if not IsValidObject(entry.obj) then
 			written[key] = nil
 			vanilla[key] = nil
+			Work.forced[key], Work.fading[key] = nil, nil
 			if entry.rootKey ~= nil then
 				sweep = sweep or {}
 				sweep[entry.rootKey] = true
@@ -2204,6 +2447,7 @@ local function ReassertManaged()
 
 	if sweep ~= nil then
 		for classKey, _ in pairs(sweep) do
+		    BudgetStep()
 			Debug("%s widget(s) gone - sweeping the live ones", classKey)
 			pcall(SweepInstances, function(spec) return spec.key == classKey end)
 		end
@@ -2244,6 +2488,7 @@ local function FirstLiveOf(className)
 	local ok, list = pcall(FindAllOf, className)
 	if not ok or list == nil then return nil end
 	for _, obj in pairs(list) do
+	    BudgetStep()
 		if IsValidObject(obj) and not IsDefaultObject(obj) then return obj end
 	end
 	return nil
@@ -2307,7 +2552,9 @@ local function PlayerPawn()
     if controllers == nil then return nil end
     compatibilityLookupWarning = nil
     for _, pawn in pairs(pawns) do
+        BudgetStep()
         for _, candidate in pairs(controllers) do
+            BudgetStep()
             if controls(candidate, pawn) then
                 fadePlayer, compatibilityController = pawn, candidate
                 return fadePlayer
@@ -2412,59 +2659,13 @@ local function WidgetIsShown(obj)
 	return opacity == nil or opacity > 0.01
 end
 
--- Cache discovered watch widgets and subscribe to their exact class. Empty or
--- unsupported classes retain the original probe cadence until they can be watched.
-local shownCache, shownHooks = {}, {}
 local function AnyShown(className)
-    local cache = shownCache[className]
-    if cache == nil or cache.generation ~= applyGeneration then
-        cache = {generation = applyGeneration, objects = {}}
-        shownCache[className] = cache
+    for _, obj in ipairs(ObjectIndex.get(className)) do
+        BudgetStep()
+        BudgetStep()
+        if IsValidObject(obj) and not IsDefaultObject(obj) and WidgetIsShown(obj) then return true end
     end
-    if not cache.seeded or not shownHooks[className] then
-        local ok, list = pcall(FindAllOf, className)
-        if not ok or (list ~= nil and type(list) ~= "table") then return nil end
-        cache.objects = list or {}
-        cache.seeded = true
-        if not shownHooks[className] and type(NotifyOnNewObject) == "function" then
-            for _, obj in pairs(cache.objects) do
-                if IsValidObject(obj) and not IsDefaultObject(obj) then
-                    local valid, path = pcall(function()
-                        local cls = obj:GetClass()
-                        -- A derived-class notification cannot cover a base-class watch.
-                        if cls:GetFName():ToString() ~= className then return nil end
-                        return string.match(cls:GetFullName(), "^%S+ (.+)$")
-                    end)
-                    if valid and path then
-                        local registered = pcall(NotifyOnNewObject, path, function(created)
-                            -- Construction notifications may run before the widget is ready.
-                            Defer(0, function()
-                                local current = shownCache[className]
-                                if current == nil or current.generation ~= applyGeneration then return end
-                                if IsValidObject(created) and not IsDefaultObject(created) then
-                                    for _, known in pairs(current.objects) do
-                                        if known == created then return end
-                                    end
-                                    current.objects[#current.objects + 1] = created
-                                end
-                            end)
-                        end)
-                        if registered then shownHooks[className] = true end
-                        break
-                    end
-                end
-            end
-        end
-    end
-    local live, shown = {}, false
-    for _, obj in pairs(cache.objects) do
-        if IsValidObject(obj) and not IsDefaultObject(obj) then
-            live[#live + 1] = obj
-            if not shown and WidgetIsShown(obj) then shown = true end
-        end
-    end
-    cache.objects = live
-    return shown
+    return false
 end
 
 -- Each probe returns true (something is happening), false (nothing is), or nil (could not tell).
@@ -2599,6 +2800,8 @@ local function ProbeEngaged(now)
 	local engaged, reasons, unknown = false, {}, {}
 
 	for _, probe in ipairs(FADE_PROBES) do
+
+	    BudgetStep()
 		if S[probe.key] then
 			local ok, value = pcall(probe.run)
 			if not ok then value = nil end
@@ -2625,6 +2828,8 @@ local function ProbeEngaged(now)
 	end
 
 	for _, class in ipairs(S.fadeWatch or {}) do
+
+	    BudgetStep()
 		local shown = AnyShown(class)
 		if shown == nil then
 			unknown[#unknown + 1] = class
@@ -2646,6 +2851,7 @@ local function ReportProbes(unknown)
 
 	local on = {}
 	for _, probe in ipairs(FADE_PROBES) do
+	    BudgetStep()
 		if S[probe.key] then on[#on + 1] = probe.key end
 	end
 
@@ -2665,12 +2871,14 @@ end
 -- The fade's own write: the effective opacity and nothing else. Two property accesses per widget
 -- instead of WriteState's dozen.
 local function WriteFadeOpacity(entry)
+    BudgetStep()
 	local target = entry.target
 	if target == nil then return false end
 	local want = EffectiveOpacity(entry, target)
 	if want == nil then return false end
 
 	local widget = entry.obj
+	if not IsValidObject(widget) then return false end
 	-- Same identity check as WriteState, for the same reason. This is the hot path (every ease
 	-- step, every held widget), and one GetFullName per write is what it costs to never write
 	-- into a reused object slot.
@@ -2707,7 +2915,8 @@ local function PushFade()
 	if holding and not fadeNamed then
 		fadeNamed = true
 		local names = {}
-		for _, entry in pairs(written) do
+		for _, entry in pairs(Work.fading) do
+		    BudgetStep()
 			if entry.fadeAllowed then names[#names + 1] = entry.name or "?" end
 		end
 		table.sort(names)
@@ -2716,7 +2925,8 @@ local function PushFade()
 	end
 
 	local touched = 0
-	for _, entry in pairs(written) do
+	for _, entry in pairs(Work.fading) do
+	    BudgetStep()
 		-- A widget whose opacity could not be read has no base to fade FROM and, worse, nothing
 		-- to put back afterwards. Better never to touch it than to fade it and get stuck.
 		local base = entry.target ~= nil
@@ -2947,6 +3157,7 @@ end
 -- restore path.
 local function ResetFade()
 	for _, entry in pairs(written) do
+	    BudgetStep()
 		if entry.fade ~= nil then
 			entry.fade = 1.0
 			if entry.target ~= nil and IsValidObject(entry.obj) then
@@ -3015,6 +3226,7 @@ end
 local function StartEaseChains(generation)
 	if fadeEaseChains > 0 then return end
 	for i = 1, (S.fadeChains or 1) do
+	    BudgetStep()
 		fadeEaseChains = fadeEaseChains + 1
 		if i == 1 then
 			EaseChain(generation)
@@ -3039,7 +3251,7 @@ local function AutoFadeHeartbeat(generation)
 		StepFade(true)
 		if Differs(fadeLevel, fadeWant) then StartEaseChains(generation) end
 		AutoFadeHeartbeat(generation)
-	end)
+	end, true)
 end
 
 -- frameHook: step the ease from a post-hook on an engine function that runs once per frame on
@@ -3049,6 +3261,7 @@ end
 -- is a guard against a function that turns out to run several times a frame.
 local function HookFadeFrame()
 	for _, raw in ipairs(S.fadeFrameHooks or {}) do
+	    BudgetStep()
 		local path = Trim(raw)
 		if path ~= "" and not fadeHooked[path] then
 			-- Several candidates can be listed; whichever of them really runs every frame ends
@@ -3074,7 +3287,7 @@ local function HookFadeFrame()
 					if fadeHookLast ~= nil and (now - fadeHookLast) < 0.004 then return end
 					fadeHookLast = now
 					fadeStepVia  = "hook:" .. short
-					StepFade(false)
+					Defer(0, function() StepFade(false) end, true, "fade-frame")
 				end)
 			end)
 			if ok then
@@ -3107,6 +3320,7 @@ local function Heartbeat(generation)
 	Defer(S.reassertMs, function()
 		if generation ~= applyGeneration then return end
 		pcall(ReassertManaged)
+		Defer(0, function() ObjectIndex.prune(false) end, false, "index-cleanup")
 
 		-- Amortised, and driven by the thing that actually grows: every prompt and marker is a new
 		-- object with a new name, so without this the snapshot table would climb all session.
@@ -3116,7 +3330,7 @@ local function Heartbeat(generation)
 		end
 
 		Heartbeat(generation)
-	end, true)
+	end)
 end
 
 -- Tight loop for force = true entries only. Walks only the forced set and does not tree-walk.
@@ -3125,7 +3339,8 @@ local function ForceHeartbeat(generation)
 	Defer(S.forceReassertMs, function()
 		if generation ~= applyGeneration then return end
 		if S.enabled and not suspended then
-			for _, entry in pairs(written) do
+			for _, entry in pairs(Work.forced) do
+			    BudgetStep()
 				if entry.force and entry.target ~= nil and IsValidObject(entry.obj) then
 					pcall(WriteState, entry, entry.target, "force")
 				end
@@ -3157,6 +3372,7 @@ local function MenuSweepHeartbeat(generation)
 
 	local anyMenu = false
 	for _, spec in ipairs(rootSpecs) do
+	    BudgetStep()
 		if spec.menu then
 			anyMenu = true
 			break
@@ -3185,6 +3401,7 @@ local function IdentifyBlink(generation)
 		blinkOn = not blinkOn
 		local opacity = blinkOn and 1.0 or 0.0
 		for _, entry in pairs(written) do
+		    BudgetStep()
 			if entry.identify and IsValidObject(entry.obj) then
 				pcall(_setOpacity, entry.obj, opacity)
 			end
@@ -3195,49 +3412,42 @@ local function IdentifyBlink(generation)
 end
 
 local function ApplySequence(reason)
-	applyGeneration = applyGeneration + 1
-	local generation = applyGeneration
-
-	-- A trigger is the one moment something big has happened - a level load, the reload key - so
-	-- the widgets we are holding are looked for again rather than trusted. The follow-ups and the
-	-- re-check keep using what this pass finds.
-	rootCache = {}
-
-	Debug("apply (%s)", reason)
-
-	-- The fade starts from "up" on every trigger. A level load has just replaced the HUD, and a
-	-- level we have left is not somewhere to still be holding a fade for.
-	ResetFade()
-
-	-- Bake the ini into the class defaults first, so anything created from here on is born with
-	-- your values instead of waiting for a hook to notice it. Skipped outright once each class is
-	-- done, so this is not a per-trigger cost.
-	pcall(PatchClassDefaults)
-	-- Same retry logic for the fade's frame hooks: their classes load after the mod starts.
-	pcall(HookFadeFrame)
-
-	pcall(ApplyAll, true)
-
-	for _, seconds in ipairs(S.followUps) do
-		local delay = math.floor(seconds * 1000)
-		if delay > 0 then
-			Defer(delay, function()
-				if generation ~= applyGeneration then return end
-				-- Retry point: a blueprint that was not loaded when the trigger fired usually is by
-				-- now. Free once the class is baked.
-				pcall(PatchClassDefaults)
-				pcall(HookFadeFrame)
-				pcall(ApplyAll, false)
-			end)
-		end
-	end
-
-	Heartbeat(generation)
-	ForceHeartbeat(generation)
-	SweepHeartbeat(generation)
-	MenuSweepHeartbeat(generation)
-	IdentifyBlink(generation)
-	AutoFadeHeartbeat(generation)
+    Defer(0, function()
+        Debug('apply (%s)', reason)
+        ResetFade()
+        PatchClassDefaults()
+        HookFadeFrame()
+        ObjectIndex.start()
+        -- A full pass is reserved for explicit configuration/diagnostic requests.
+        -- Normal startup/load relies on the indexed per-instance updates.
+        if reason == 'reload key' or reason == 'toggle key' or reason == 'scan key' then
+            ApplyAll(true)
+        else
+            -- Resume indexed instances whose jobs were retired during loading.
+            ObjectIndex.prune(true)
+        end
+        -- Only retry class readiness. Construction events own per-instance updates;
+        -- there are no full-tree replay passes at 2, 6 and 15 seconds.
+        for _, seconds in ipairs(S.followUps) do
+            BudgetStep()
+            if seconds > 0 then
+                Defer(math.floor(seconds * 1000), function()
+                    ObjectIndex.start()
+                    PatchClassDefaults()
+                    HookFadeFrame()
+                end, false, 'class-readiness-' .. seconds)
+            end
+        end
+        local generation = applyGeneration
+        if Work.heartbeatGeneration == generation then return end
+        Work.heartbeatGeneration = generation
+        Heartbeat(generation)
+        ForceHeartbeat(generation)
+        SweepHeartbeat(generation)
+        MenuSweepHeartbeat(generation)
+        IdentifyBlink(generation)
+        AutoFadeHeartbeat(generation)
+    end, false, 'apply')
 end
 
 -- ##############################
@@ -3245,6 +3455,7 @@ end
 -- ##############################
 
 function Reload()
+	RetireWork()
 	Log("================ Reload ================")
 
 	-- 1. put every value we wrote back to what it was, so nothing compounds
@@ -3272,6 +3483,7 @@ function Reload()
 end
 
 local function Toggle()
+	RetireWork()
 	suspended = not suspended
 	if suspended then
 		pcall(RestoreAll)
@@ -3305,6 +3517,7 @@ local function ScanLiveWidgets()
 	local byClass, order = {}, {}
 	local total = 0
 	for _, obj in pairs(found) do
+	    BudgetStep()
 		if IsValidObject(obj) and not IsDefaultObject(obj) then
 			total = total + 1
 			local class = SafeClassName(obj)
@@ -3331,6 +3544,7 @@ local function ScanLiveWidgets()
 	-- against the roots list would report it as unreached when it is nothing of the kind.
 	local reached = {}
 	for _, entry in pairs(vanilla) do
+	    BudgetStep()
 		if entry.class ~= nil then reached[string.lower(entry.class)] = true end
 	end
 
@@ -3338,6 +3552,7 @@ local function ScanLiveWidgets()
 	Log("\"reached\" = this mod has walked one and a section can name it. For anything else, paste")
 	Log("its path into roots (HUD) or menuRoots (screens) and press the reload key.")
 	for _, class in ipairs(order) do
+	    BudgetStep()
 		local info = byClass[class]
 		Log("  %-44s x%-3d %s%s", class, info.count, info.path,
 		    reached[string.lower(class)] and "   <- reached" or "")
@@ -3397,10 +3612,12 @@ local classDefaults     = {}   -- [fullName] = { obj, snapshot } - what the blue
 local classDefaultsDone = {}   -- [classPath] = true once that class has been baked
 
 local function PatchDefaultObject(obj, name, class, isRoot)
+    BudgetStep()
 	if not IsValidObject(obj) then return false end
 
 	local item, claims = { name = name, class = class }, nil
 	for _, section in ipairs(ConfiguredSections()) do
+	    BudgetStep()
 		if SectionMatches(item, string.lower(section)) then
 			claims = claims or {}
 			claims[#claims + 1] = section
@@ -3436,6 +3653,7 @@ end
 -- RestoreAll's job; this is only about the ones not created yet.
 function RestoreClassDefaults()
 	for _, held in pairs(classDefaults) do
+	    BudgetStep()
 		if IsValidObject(held.obj) then
 			pcall(WriteState, { obj = held.obj }, held.snapshot)
 		end
@@ -3450,6 +3668,8 @@ function PatchClassDefaults()
 	if not S.enabled or suspended or not S.hookNewWidgets or not S.bakeDefaults then return end
 
 	for _, spec in ipairs(rootSpecs) do
+
+	    BudgetStep()
 		-- Native classes are skipped: a blueprint subclass copies its parent's defaults when it is
 		-- compiled, so writing to the parent's CDO now reaches nothing, and a native class has no
 		-- widget-tree template to patch either. Menus are covered by the new-instance watch.
@@ -3478,6 +3698,7 @@ function PatchClassDefaults()
 				local items = {}
 				CollectSubtree(cls, items, {}, 0)
 				for _, item in ipairs(items) do
+				    BudgetStep()
 					if item.obj ~= cls then
 						PatchDefaultObject(item.obj, item.name, item.class)
 					end
@@ -3503,47 +3724,33 @@ end
 local newObjectHooked = {}
 
 function HookNewObjects()
-	if not S.hookNewWidgets then
-		Log("hookNewWidgets = false - widgets created while you play are left alone")
-		return
-	end
-
-	if NotifyOnNewObject == nil then
-		Log("NOTE: NotifyOnNewObject is not available in this UE4SS build - relying on the " ..
-		    "%.1fs re-check and the reload key instead.", S.reassertMs / 1000)
-		return
-	end
-
-	local hooked, skipped = 0, 0
-	for _, spec in ipairs(rootSpecs) do
-		if spec.path == nil then
-			skipped = skipped + 1
-		elseif not newObjectHooked[spec.path] then
-			local ok = pcall(function()
-				local specKey = spec.key
-				NotifyOnNewObject(spec.path, function(obj)
-					if not S.enabled or suspended then return end
-					Defer(0, function() pcall(TweakInstance, obj, specKey) end)
-					for _, seconds in ipairs(S.newObjectFollowUps or {}) do
-						local delay = math.floor(seconds * 1000)
-						Defer(delay, function() pcall(TweakInstance, obj, specKey) end)
-					end
-				end)
-			end)
-			newObjectHooked[spec.path] = ok
-			if ok then
-				hooked = hooked + 1
-			else
-				Log("NOTE: NotifyOnNewObject failed for %s", spec.path)
-			end
-		else
-			hooked = hooked + 1
-		end
-	end
-
-	Log("Watching %d widget class(es) for new instances%s", hooked,
-	    (skipped > 0) and string.format("  (%d entry/entries in roots have no path and cannot " ..
-	    "be watched - give them a full /Game/... path, or set sweepSeconds)", skipped) or "")
+    ObjectIndex.start()
+    ObjectIndex.widget = function(obj, names)
+        if not S.hookNewWidgets or not S.enabled or suspended then return end
+        local chosen
+        for _, spec in ipairs(rootSpecs) do
+            BudgetStep()
+            for _, name in ipairs(names) do
+                BudgetStep()
+                if spec.class == name then chosen = spec.key; break end
+            end
+            if chosen then break end
+        end
+        if not chosen then return end
+        -- One readiness chain per instance; the upstream zero-delay retry is redundant.
+        Defer(0, function()
+            if not IsValidObject(obj) then return end
+            TweakInstance(obj, chosen)
+            for _, seconds in ipairs(S.newObjectFollowUps or {}) do
+                BudgetStep()
+                if seconds > 0 then
+                    Defer(math.floor(seconds * 1000), function()
+                        if IsValidObject(obj) then TweakInstance(obj, chosen) end
+                    end, false, {obj, seconds})
+                end
+            end
+        end, false, obj)
+    end
 end
 
 -- "Widget:Function" is not enough here because these widgets live in a dozen different folders,
@@ -3586,6 +3793,7 @@ local function ReassertWidget(widget)
 		-- one widget, four cheap writes, and the last one lands after any short animation.
 		local generation = applyGeneration
 		for _, ms in ipairs({ 80, 200, 400, 700 }) do
+		    BudgetStep()
 			Defer(ms, function()
 				if generation ~= applyGeneration then return end
 				if IsValidObject(entry.obj) and entry.target ~= nil then
@@ -3621,18 +3829,15 @@ local function ReassertWidget(widget)
 	-- that was visible. So re-assert everything we hold, right now and once more a moment later
 	-- for anything the game settles on the following frame. ReassertManaged touches only
 	-- `written` and only the fields we wrote, so this is cheap enough to hang off a hook.
-	pcall(ReassertManaged)
-	local generation = applyGeneration
-	Defer(120, function()
-		if generation ~= applyGeneration then return end
-		pcall(ReassertManaged)
-	end)
+	Defer(0, ReassertManaged, false, "preset-reassert")
+	Defer(120, ReassertManaged, false, "preset-reassert-followup")
 end
 
 local reassertAfterHooked = {}
 
 function HookReassertAfter()
 	for _, spec in ipairs(S.reassertAfter or {}) do
+	    BudgetStep()
 		local path = HookPath(spec)
 		if path == nil then
 			Log("WARNING: reassertAfter entry '%s' is not a full path in the form " ..
@@ -3640,7 +3845,8 @@ function HookReassertAfter()
 		elseif not reassertAfterHooked[path] then
 			local ok = pcall(function()
 				RegisterHook(path, function() end, function(context)
-					pcall(function() ReassertWidget(context:get()) end)
+					local ok, widget = pcall(function() return context:get() end)
+					if ok then Defer(0, function() ReassertWidget(widget) end, true, widget) end
 				end)
 			end)
 
@@ -3664,6 +3870,7 @@ ResolveSettings()
 
 local menuCount = 0
 for _, spec in ipairs(rootSpecs) do
+    BudgetStep()
 	if spec.menu then menuCount = menuCount + 1 end
 end
 
@@ -3685,31 +3892,26 @@ else
 	Log("  autoFade=off. Turn it on with [AutoFade] enabled = true in %s.", INI_NAME)
 end
 
+ObjectIndex.start()
 Defer(0, function()
 BindKeys()
 HookNewObjects()
 HookReassertAfter()
 HookFadeFrame()
 
-RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
+RegisterHook("/Script/Engine.PlayerController:ClientRestart", function(context)
+	RetireWork()
+	local ok, controller = pcall(function() return context:get() end)
+	if ok then Defer(0, function() ObjectIndex.context(controller) end, true, nil, true) end
 	Debug("client restart")
-	-- Retire queued widget work immediately, before the delayed HUD rebuild.
-	applyGeneration = applyGeneration + 1
-	rootCache = {}
-	fadePlayer, compatibilityController, fadeCombatSub = nil, nil, nil
-	ResetFade()
 
 	if not beginPlayHooked then
 		beginPlayHooked = pcall(function()
 			RegisterHook(BEGIN_PLAY, function()
 				-- The HUD is built around here. A level transition comes back through here too,
 				-- with a brand new set of widgets, so everything we held is stale.
-				applyGeneration = applyGeneration + 1
-				rootCache = {}
-				fadePlayer, compatibilityController, fadeCombatSub = nil, nil, nil
-				ResetFade()
-				PurgeDead()
-				Defer(2000, function() ApplySequence("begin play") end)
+				RetireWork()
+				Defer(2000, function() PurgeDead(); ApplySequence("begin play") end, false, "load-apply")
 			end)
 		end)
 		if beginPlayHooked then
@@ -3721,7 +3923,7 @@ RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
 		end
 	end
 
-	Defer(4000, function() ApplySequence("client restart") end)
+	Defer(4000, function() ApplySequence("client restart") end, false, "load-apply")
 end)
 
 -- Hot reload support: with this on we try right away instead of waiting for a level load.
@@ -3730,6 +3932,7 @@ if S.startImmediately then
 	-- Retry the bake a few times - blueprints may not be loaded on the first script tick, and a
 	-- class that is not loaded yet has no defaults to write.
 	for _, ms in ipairs({ 50, 100, 250, 500, 1000, 2000, 4000 }) do
+	    BudgetStep()
 		Defer(ms, function() pcall(PatchClassDefaults) end)
 	end
 end

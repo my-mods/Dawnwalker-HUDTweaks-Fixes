@@ -60,5 +60,9 @@
     "version": "1.1.4",
     "changes": "Game-thread delayed widget access, construction deferral, lifecycle invalidation and cached visibility watches",
     "nativeValidation": "Loading and combat validation pending"
+  },
+  "pendingPerformance": {
+    "changes": "Spread HUD work across frames, track object construction, coalesce updates and resume current instances after loading",
+    "nativeValidation": "In-game frame-time comparison and loading/combat validation pending"
   }
 }

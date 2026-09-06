@@ -8,7 +8,7 @@ A fixes add-on for **HUDTweaks v4** in *The Blood of Dawnwalker*.
 - Keeps delayed widget updates on the game thread and discards old work after a player restart.
 - Checks HUD activity every 0.5 seconds and rechecks layout every 5 seconds, reducing recurring work while preserving fade animation speed.
 
-Preserves HUDTweaks v4's layout and visual defaults. Activity changes can take an additional fraction of a second to reveal the HUD. HUD visibility watches reuse discovered widgets; unavailable or custom classes retain discovery checks.
+Preserves HUDTweaks v4's layout and visual defaults. Activity changes can take an additional fraction of a second to reveal the HUD. Tracks widget creation instead of repeatedly searching all objects, and spreads large updates across frames.
 
 ## Requirements
 
