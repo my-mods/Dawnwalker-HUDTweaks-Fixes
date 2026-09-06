@@ -1,6 +1,6 @@
 {
   "game": "The Blood of Dawnwalker",
-  "modVersion": "1.1.3",
+  "modVersion": "1.1.4",
   "releaseArchive": "HUDTweaks-Fixes.zip",
   "vortexInstaller": "ue4ss-lua",
   "iniArchivePath": "Data/HUDTweaks/Scripts/HUDTweaks.ini",
@@ -57,7 +57,7 @@
     "nativeValidation": "Slower check timing pending in-game validation"
   },
   "pendingWidgetSafety": {
-    "version": "unreleased",
+    "version": "1.1.4",
     "changes": "Game-thread delayed widget access, construction deferral, lifecycle invalidation and cached visibility watches",
     "nativeValidation": "Loading and combat validation pending"
   }

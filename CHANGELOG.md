@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 1.1.4 — 2026-09-06
 
 - Fix unsafe HUD widget updates that could cause crashes during loading or combat.
 
