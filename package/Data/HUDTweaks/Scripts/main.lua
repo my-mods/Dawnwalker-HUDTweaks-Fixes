@@ -284,6 +284,30 @@ local Work = {forced = {}, fading = {}, queue = {}, keyed = {}, active = {}, tok
     frame = nil, units = 0, started = 0, current = nil, clock = nil, attempts = 0,
     stats = {slices = 0, maxMs = 0, maxUnits = 0, coalesced = 0}}
 local Pump, Arm
+-- UE4SS binds native APIs to the Lua states it creates. Plain Lua coroutines
+-- only plan work; the registered game-thread callback executes native calls.
+local function HostPcall(fn, ...)
+    if Work.current ~= coroutine.running() then return pcall(fn, ...) end
+    return coroutine.yield({call = fn, args = table.pack(...)})
+end
+local function HostFunction(fn)
+    if type(fn) ~= 'function' then return fn end
+    return function(...)
+        local result = table.pack(HostPcall(fn, ...))
+        if not result[1] then error(result[2], 0) end
+        return table.unpack(result, 2, result.n)
+    end
+end
+Log = HostFunction(Log)
+Work.host = {
+    StaticFindObject = HostFunction(StaticFindObject),
+    RegisterHook = HostFunction(RegisterHook),
+    RegisterKeyBind = HostFunction(RegisterKeyBind),
+    NotifyOnNewObject = HostFunction(NotifyOnNewObject),
+    ExecuteInGameThreadWithDelay = HostFunction(ExecuteInGameThreadWithDelay),
+    ExecuteInGameThread = HostFunction(ExecuteInGameThread),
+    ExecuteWithDelay = HostFunction(ExecuteWithDelay),
+}
 local function BudgetStep()
     if Work.current ~= coroutine.running() then return end
     while Work.units >= 128 or os.clock() - Work.started >= 0.001 do coroutine.yield() end
@@ -312,10 +336,10 @@ Arm = function(ms)
         Work.due = nil
         Pump()
     end
-    if type(ExecuteInGameThreadWithDelay) == 'function' then
-        ExecuteInGameThreadWithDelay(math.max(ms, 1), run)
-    elseif type(ExecuteInGameThread) == 'function' and type(ExecuteWithDelay) == 'function' then
-        ExecuteWithDelay(math.max(ms, 1), function() ExecuteInGameThread(run) end)
+    if type(Work.host.ExecuteInGameThreadWithDelay) == 'function' then
+        Work.host.ExecuteInGameThreadWithDelay(math.max(ms, 1), run)
+    elseif type(Work.host.ExecuteInGameThread) == 'function' and type(Work.host.ExecuteWithDelay) == 'function' then
+        Work.host.ExecuteWithDelay(math.max(ms, 1), function() Work.host.ExecuteInGameThread(run) end)
     else
         Work.due = nil
         if not Work.warned then Log('HUD scheduling requires game-thread callbacks.'); Work.warned = true end
@@ -325,7 +349,7 @@ local function FrameNumber()
     if Work.clock == nil then
         if Work.attempts >= 3 then return nil end
         Work.attempts = Work.attempts + 1
-        local ok, lib = pcall(StaticFindObject, '/Script/Engine.Default__KismetSystemLibrary')
+        local ok, lib = pcall(Work.host.StaticFindObject, '/Script/Engine.Default__KismetSystemLibrary')
         if ok then Work.clock = lib end
     end
     local ok, frame = pcall(function()
@@ -377,12 +401,21 @@ Pump = function()
             if not job then break end
             Work.units = Work.units + 1
             Work.current = job.thread
-            local ok, err = coroutine.resume(job.thread)
+            local reply = job.reply
+            job.reply = nil
+            local ok, err
+            if reply then ok, err = coroutine.resume(job.thread, table.unpack(reply, 1, reply.n))
+            else ok, err = coroutine.resume(job.thread) end
             Work.current = nil
             if not ok or coroutine.status(job.thread) == 'dead' then
                 if job.key ~= nil and Work.keyed[job.key] == job then Work.keyed[job.key] = nil end
                 Work.active[lane] = nil
                 if not ok then Log('HUD job stopped: %s', tostring(err)) end
+            elseif type(err) == 'table' and type(err.call) == 'function' then
+                -- Run one atomic operation here, never in the job's Lua state.
+                -- Replies contain scalars, owned Lua tables or UObject references;
+                -- borrowed property structs stay inside the atomic operation.
+                job.reply = table.pack(pcall(err.call, table.unpack(err.args, 1, err.args.n)))
             else break end
         end
     end
@@ -412,7 +445,7 @@ local function SameOwner(a, b)
     return a == b or (a:IsValid() and b:IsValid() and a:GetAddress() == b:GetAddress())
 end
 local function CurrentEntry(entry)
-    local ok, live = pcall(function()
+    local ok, live = HostPcall(function()
         return entry.obj:IsValid()
             and (not entry.world or not ObjectIndex.world or SameOwner(entry.world, ObjectIndex.world))
             and (not entry.owner or not ObjectIndex.owner or SameOwner(entry.owner, ObjectIndex.owner))
@@ -428,7 +461,7 @@ local function IndexedWorld(obj)
 end
 function ObjectIndex.add(obj)
     BudgetStep()
-    local ok, names, world, owner = pcall(function()
+    local ok, names, world, owner = HostPcall(function()
         if not obj or not obj:IsValid() then return nil end
         local full = obj:GetFullName()
         if string.find(full, 'Default__', 1, true) then return nil end
@@ -440,11 +473,11 @@ function ObjectIndex.add(obj)
             if name == 'UserWidget' then isWidget = true end
             cls = cls:GetSuperStruct()
         end
-        local hasWorld, w = pcall(IndexedWorld, obj)
+        local hasWorld, w = HostPcall(IndexedWorld, obj)
         if not hasWorld then w = nil end
         local player
         if isWidget then
-            local hasOwner, candidate = pcall(function() return obj:GetOwningPlayer() end)
+            local hasOwner, candidate = HostPcall(function() return obj:GetOwningPlayer() end)
             if hasOwner and candidate and candidate:IsValid() then player = candidate end
         end
         return chain, w, player
@@ -496,14 +529,14 @@ function ObjectIndex.prune(replay)
     end
 end
 function ObjectIndex.context(controller)
-    local ok, localPlayer = pcall(function() return controller:IsValid() and controller:IsLocalController() end)
+    local ok, localPlayer = HostPcall(function() return controller:IsValid() and controller:IsLocalController() end)
     if not ok or not localPlayer then return end
     ObjectIndex.attempts = {}
     ObjectIndex.owner = controller
-    local found, world = pcall(IndexedWorld, controller)
+    local found, world = HostPcall(IndexedWorld, controller)
     ObjectIndex.world = found and world or nil
     ObjectIndex.capture(controller)
-    local valid, pawn = pcall(function() return controller.Pawn end)
+    local valid, pawn = HostPcall(function() if controller:IsValid() then return controller.Pawn end end)
     if valid and pawn then ObjectIndex.capture(pawn) end
 end
 function ObjectIndex.start()
@@ -511,7 +544,7 @@ function ObjectIndex.start()
         '/Script/Engine.WorldSubsystem', '/Script/Engine.GameInstanceSubsystem'}) do
         if not ObjectIndex.hooks[path] and (ObjectIndex.attempts[path] or 0) < 3 then
             ObjectIndex.attempts[path] = (ObjectIndex.attempts[path] or 0) + 1
-            ObjectIndex.hooks[path] = pcall(NotifyOnNewObject, path, ObjectIndex.capture)
+            ObjectIndex.hooks[path] = pcall(Work.host.NotifyOnNewObject, path, ObjectIndex.capture)
             if not ObjectIndex.hooks[path] and ObjectIndex.attempts[path] == 3 then
                 Log('HUD discovery unavailable for %s; check UE4SS compatibility.', path)
             end
@@ -530,11 +563,17 @@ end
 -- closure for every inline function() ... end, and these run once or more per widget per pass, so
 -- they are written once here and handed their object as an argument instead.
 local function _get(obj)       return obj:get() end
+_get = HostFunction(_get)
 local function _isValid(obj)   return obj:IsValid() end
-local function _fullName(obj)  return obj:GetFullName() end
-local function _shortName(obj) return obj:GetFName():ToString() end
-local function _className(obj) return obj:GetClass():GetFName():ToString() end
-local function _setOpacity(obj, value) return obj:SetRenderOpacity(value) end
+_isValid = HostFunction(_isValid)
+local function _fullName(obj)  if not obj or not obj:IsValid() then return nil end; return obj:GetFullName() end
+_fullName = HostFunction(_fullName)
+local function _shortName(obj) if not obj or not obj:IsValid() then return nil end; return obj:GetFName():ToString() end
+_shortName = HostFunction(_shortName)
+local function _className(obj) if not obj or not obj:IsValid() then return nil end; return obj:GetClass():GetFName():ToString() end
+_className = HostFunction(_className)
+local function _setOpacity(obj, value) if not obj or not obj:IsValid() then return nil end; return obj:SetRenderOpacity(value) end
+_setOpacity = HostFunction(_setOpacity)
 
 -- UE4SS hands most numbers back plain, but wrapped values need :get()
 local function ToNumber(value)
@@ -792,7 +831,7 @@ end
 -- ##############################
 
 -- One entry per root: the short class name FindAllOf wants, and - when the ini gave a full path -
--- the object path NotifyOnNewObject and the class-default bake want. An entry that is only a
+-- the object path Work.host.NotifyOnNewObject and the class-default bake want. An entry that is only a
 -- short name still works for finding and tweaking live widgets; it just cannot be baked or
 -- notified on, because there is no path to look the class up by.
 local rootSpecs = {}
@@ -888,11 +927,11 @@ local function ResolveSettings()
 	end
 
 	-- The master switch for catching widgets as they are created: the class-default bake and the
-	-- NotifyOnNewObject callbacks. false leaves both off and relies on triggers alone, which in
+	-- Work.host.NotifyOnNewObject callbacks. false leaves both off and relies on triggers alone, which in
 	-- this game means prompts and loot markers will often show up untweaked.
 	S.hookNewWidgets   = GetBool("General", "hookNewWidgets", true)
 	S.bakeDefaults     = GetBool("General", "bakeClassDefaults", true)
-	-- A widget is allocated before its tree is filled in, so the NotifyOnNewObject callback fixes
+	-- A widget is allocated before its tree is filled in, so the Work.host.NotifyOnNewObject callback fixes
 	-- what it can straight away and then comes back a few times.
 	S.newObjectFollowUps = GetNumberList("General", "newObjectFollowUpSeconds", { 0, 0.05, 0.25 })
 
@@ -926,7 +965,7 @@ local function ResolveSettings()
 	S.forceReassertMs = math.floor(GetNum("General", "forceReassertSeconds", 0.05) * 1000)
 	S.followUps  = GetNumberList("General", "followUpSeconds", { 2, 6, 15 })
 	-- Periodic FindAllOf sweep of every root class. 0 = off, which is the default: the bake and
-	-- NotifyOnNewObject already catch new widgets, and a sweep is the one expensive thing here.
+	-- Work.host.NotifyOnNewObject already catch new widgets, and a sweep is the one expensive thing here.
 	S.sweepMs    = math.floor(GetNum("General", "sweepSeconds", 0) * 1000)
 	-- The menus need one of their own - see MenuSweepHeartbeat for why it is on when the general
 	-- sweep is off.
@@ -950,7 +989,7 @@ local function ResolveSettings()
 	-- turn this into a spin.
 	S.fadeStepMs     = math.max(8, math.floor(GetNum("AutoFade", "fadeStepSeconds", 0.016) * 1000))
 	-- How the ease is driven while the fade is moving. Measured on this build: both UE4SS timers
-	-- and ExecuteInGameThread deliver a step about every 100ms whatever is asked for, so neither
+	-- and Work.host.ExecuteInGameThread deliver a step about every 100ms whatever is asked for, so neither
 	-- can make a fade smooth. frameHook is the one route that is not a UE4SS timer: a post-hook
 	-- on an engine function that runs every frame on the game thread, stepping the ease from
 	-- there. Off by default; the cadence line in the log says what each option achieves.
@@ -1034,6 +1073,7 @@ local function ReadVisibility(widget)
 	end
 	return value
 end
+ReadVisibility = HostFunction(ReadVisibility)
 
 -- The tint a widget multiplies itself by, and the thing brightness acts on. A UUserWidget
 -- applies ColorAndOpacity to its whole subtree and a UImage applies it to its brush, which
@@ -1054,6 +1094,7 @@ local function ReadTint(widget)
 	if r == nil or g == nil or b == nil then return nil end
 	return r, g, b, a or 1.0
 end
+ReadTint = HostFunction(ReadTint)
 
 -- Everything we are ever going to touch, in one flat table. Taken once per widget, before we
 -- write anything, and never taken again - that is the whole compounding defence.
@@ -1085,6 +1126,7 @@ local function ReadState(widget)
 	st.vis = ReadVisibility(widget)
 	return st
 end
+ReadState = HostFunction(ReadState)
 
 local function WriteTintChannels(widget, r, g, b)
 	return pcall(function()
@@ -1338,6 +1380,7 @@ local function WriteState(entry, target, why)
 
 	return changed
 end
+WriteState = HostFunction(WriteState)
 
 -- ##############################
 -- Walking the widget tree
@@ -1353,10 +1396,14 @@ end
 -- passes exist to catch - remembering it would hide a whole subtree until the reload key. Keyed on
 -- the CLASS address, never on an instance's: class objects of loaded blueprints are not recycled
 -- the way instances are.
-local function _treeRoot(widget)   return widget.WidgetTree.RootWidget end
-local function _childCount(widget) return widget:GetChildrenCount() end
-local function _childAt(widget, i) return widget:GetChildAt(i) end
-local function _classAddress(obj)  return obj:GetClass():GetAddress() end
+local function _treeRoot(widget)   if not widget or not widget:IsValid() then return nil end; return widget.WidgetTree.RootWidget end
+_treeRoot = HostFunction(_treeRoot)
+local function _childCount(widget) if not widget or not widget:IsValid() then return nil end; return widget:GetChildrenCount() end
+_childCount = HostFunction(_childCount)
+local function _childAt(widget, i) if not widget or not widget:IsValid() then return nil end; return widget:GetChildAt(i) end
+_childAt = HostFunction(_childAt)
+local function _classAddress(obj)  if not obj or not obj:IsValid() then return nil end; return obj:GetClass():GetAddress() end
+_classAddress = HostFunction(_classAddress)
 
 local widgetKind = {}   -- [class address] = "user" | "panel". Positives only, never "leaf".
 
@@ -2027,7 +2074,7 @@ local function BuildInstanceCache(root, classKey, specKey)
 	local rootFullName  = SafeName(root)
 	local nonRoot, opacityWanted = false, false
 
-	-- NotifyOnNewObject hands us the widget the instant it is allocated, which is BEFORE its
+	-- Work.host.NotifyOnNewObject hands us the widget the instant it is allocated, which is BEFORE its
 	-- WidgetTree has been filled in - so the walk above can legitimately come back with nothing
 	-- but the root. Caching that as the answer for the whole class would be a lie that lasts
 	-- until the next trigger: every later instance would be told there is nothing inside it to
@@ -2419,7 +2466,7 @@ end
 -- prompt went away, a notification finished - and a full pass would mean re-searching two dozen
 -- classes and re-walking every tree. Instead its class is swept: FindAllOf for that one class and
 -- the cheap per-instance tweak on whatever is live. Anything genuinely new was already caught by
--- the class-default bake and NotifyOnNewObject before it ever painted.
+-- the class-default bake and Work.host.NotifyOnNewObject before it ever painted.
 local function ReassertManaged()
 	if not S.enabled or suspended then return 0 end
 
@@ -2520,7 +2567,8 @@ local compatibilityLookupWarning = nil
 local function PlayerPawn()
     local function controls(candidate, pawn)
         if not IsValidObject(candidate) or not IsValidObject(pawn) then return false end
-        local ok, result = pcall(function()
+        local ok, result = HostPcall(function()
+            if not IsValidObject(candidate) or not IsValidObject(pawn) then return false end
             local name = pawn:GetFullName()
             return not IsDefaultObject(candidate) and not IsDefaultObject(pawn)
                 and candidate:IsLocalController() == true
@@ -2571,7 +2619,7 @@ local function PlayerPart(field)
 	if pawn == nil then return nil end
 
 	local part = nil
-	pcall(function() part = pawn[field] end)
+	HostPcall(function() if not IsValidObject(pawn) then return end; part = pawn[field] end)
 	if IsValidObject(part) then return part end
 	return nil
 end
@@ -2600,14 +2648,14 @@ local function PlayerVitals(withStamina)
 	if combat == nil then return nil, nil end
 
 	local hp, sp = nil, nil
-	pcall(function() hp = Vital(combat:GetHealthPercentage()) end)
+	HostPcall(function() if not IsValidObject(combat) then return end; hp = Vital(combat:GetHealthPercentage()) end)
 	-- Stamina is opt-in per probe, and off by default, because of what spends it: a sprint, a
 	-- dodge, a shadowstep. Outside combat those are the most ordinary things a player does, and
 	-- every one of them dropped the bar 2% and brought the whole HUD back for the refill. That
 	-- was the "shadowstep un-fades the HUD" report, and it took the debug line to see it - it
 	-- looked like an aim signal from the outside.
 	if withStamina then
-		pcall(function() sp = Vital(combat:GetStaminaPercentage()) end)
+		HostPcall(function() if not IsValidObject(combat) then return end; sp = Vital(combat:GetStaminaPercentage()) end)
 	end
 	return hp, sp
 end
@@ -2658,6 +2706,7 @@ local function WidgetIsShown(obj)
 
 	return opacity == nil or opacity > 0.01
 end
+WidgetIsShown = HostFunction(WidgetIsShown)
 
 local function AnyShown(className)
     for _, obj in ipairs(ObjectIndex.get(className)) do
@@ -2680,8 +2729,8 @@ local FADE_PROBES = {
 			if fadeCombatSub == nil then return nil end
 
 			local value = nil
-			pcall(function() value = fadeCombatSub.bIsInCombat end)
-			if value == nil then pcall(function() value = fadeCombatSub:GetIsInCombat() end) end
+			HostPcall(function() if not IsValidObject(fadeCombatSub) then return end; value = fadeCombatSub.bIsInCombat end)
+			if value == nil then HostPcall(function() if not IsValidObject(fadeCombatSub) then return end; value = fadeCombatSub:GetIsInCombat() end) end
 			if value == nil then return nil end
 			return value == true
 		end,
@@ -2697,7 +2746,7 @@ local FADE_PROBES = {
 			-- which is the earliest honest signal that combat is about to matter - it comes up
 			-- before the combat subsystem does.
 			local mode = nil
-			pcall(function() mode = ToNumber(combat.CurrentCombatMode) end)
+			HostPcall(function() if not IsValidObject(combat) then return end; mode = ToNumber(combat.CurrentCombatMode) end)
 			if mode == nil then return nil end
 			return mode ~= 0
 		end,
@@ -2709,12 +2758,12 @@ local FADE_PROBES = {
 			if combat == nil then return nil end
 
 			local locked = nil
-			pcall(function() locked = combat:IsHardLocked() end)
+			HostPcall(function() if not IsValidObject(combat) then return end; locked = combat:IsHardLocked() end)
 			if locked ~= nil then return locked == true end
 
 			-- Soft lock: there is a target even if it is not a hard lock.
 			local target = nil
-			pcall(function() target = combat.CurrentLockTarget end)
+			HostPcall(function() if not IsValidObject(combat) then return end; target = combat.CurrentLockTarget end)
 			if target == nil then return nil end
 			return IsValidObject(target)
 		end,
@@ -2728,11 +2777,11 @@ local FADE_PROBES = {
 			-- Planning the abilities and executing the plan are two different states, and both of
 			-- them are very much "something is happening".
 			local planning = nil
-			pcall(function() planning = pawn.bIsInFocusMode end)
+			HostPcall(function() if not IsValidObject(pawn) then return end; planning = pawn.bIsInFocusMode end)
 
 			local executing = nil
 			local focus = PlayerPart("CombatFocusComponent")
-			if focus ~= nil then pcall(function() executing = focus:IsExecuting() end) end
+			if focus ~= nil then HostPcall(function() if not IsValidObject(focus) then return end; executing = focus:IsExecuting() end) end
 
 			if planning == nil and executing == nil then return nil end
 			return planning == true or executing == true
@@ -2745,7 +2794,7 @@ local FADE_PROBES = {
 			if shadowstep == nil then return nil end
 
 			local aiming = nil
-			pcall(function() aiming = shadowstep:GetAimingEnabled() end)
+			HostPcall(function() if not IsValidObject(shadowstep) then return end; aiming = shadowstep:GetAimingEnabled() end)
 			if aiming == nil then return nil end
 			if aiming ~= true then return false end
 
@@ -2758,7 +2807,7 @@ local FADE_PROBES = {
 			-- the value-free question instead: has a step actually fired in the last moment? If
 			-- it has, this is an execution, not an aim. Unreadable = trust the aim, as before.
 			local fired = nil
-			pcall(function() fired = shadowstep:HasBeenTriggeredRecently(S.stepSeconds) end)
+			HostPcall(function() if not IsValidObject(shadowstep) then return end; fired = shadowstep:HasBeenTriggeredRecently(S.stepSeconds) end)
 			if fired == true then return false end
 			return true
 		end,
@@ -2896,6 +2945,7 @@ local function WriteFadeOpacity(entry)
 	end
 	return ok
 end
+WriteFadeOpacity = HostFunction(WriteFadeOpacity)
 
 -- Writes the current level onto the widgets the fade owns. Nothing is written when the level has
 -- not moved, so a HUD that is fully up, or fully faded and sitting there, costs one float compare
@@ -3071,7 +3121,7 @@ local function AutoFadeStep(withProbes)
 	fadeWant = idle and S.idleOpacity or 1.0
 
 	-- Measured in seconds elapsed, not in ticks. The heartbeat below deliberately changes its own
-	-- interval depending on whether anything is moving, and ExecuteWithDelay was never exact to
+	-- interval depending on whether anything is moving, and Work.host.ExecuteWithDelay was never exact to
 	-- begin with, so "how long since we last moved" is the only basis on which fadeOutSeconds
 	-- means what it says. The clamp is for the frame after a hitch or a loading screen: a two
 	-- second gap must not teleport the fade, it must just take a big step and carry on.
@@ -3269,19 +3319,19 @@ local function HookFadeFrame()
 			-- double the work. The cadence line names the one that stepped last.
 			--
 			-- A blueprint class is not loaded when the mod starts - the HUD arrives seconds
-			-- later - and RegisterHook on a function of an unloaded class fails. So the class is
+			-- later - and Work.host.RegisterHook on a function of an unloaded class fails. So the class is
 			-- looked up first, and a missing one is skipped quietly; this runs again on every
 			-- apply trigger (begin play, the follow-ups, F7) until it succeeds.
 			local classPath = string.match(path, "^(.-):[^:]+$")
 			local cls = nil
-			if classPath ~= nil then pcall(function() cls = StaticFindObject(classPath) end) end
+			if classPath ~= nil then pcall(function() cls = Work.host.StaticFindObject(classPath) end) end
 			if classPath ~= nil and not IsValidObject(cls) then
 				Debug("frameHook: %s is not loaded yet - will try again on the next trigger", classPath)
 				goto continue
 			end
 			local short = string.match(path, "([^./]+)$") or path
 			local ok = pcall(function()
-				RegisterHook(path, function() end, function()
+				Work.host.RegisterHook(path, function() end, function()
 					if not Differs(fadeLevel, fadeWant) then return end
 					local now = Now() or 0
 					if fadeHookLast ~= nil and (now - fadeHookLast) < 0.004 then return end
@@ -3311,7 +3361,7 @@ end
 -- play, the reload key, plus a couple of follow-ups because parts of the HUD are created lazily.
 -- Between triggers all that runs is ReassertManaged.
 --
--- The heartbeat is a self-rescheduling ExecuteWithDelay rather than a tick hook so that it is
+-- The heartbeat is a self-rescheduling Work.host.ExecuteWithDelay rather than a tick hook so that it is
 -- paced in real time and so that it does not share a hook with another mod. The generation guard
 -- is what stops them piling up: every trigger bumps applyGeneration, so the previous chain
 -- retires on its next wake-up.
@@ -3525,7 +3575,7 @@ local function ScanLiveWidgets()
 			if seen == nil then
 				-- "WidgetBlueprintGeneratedClass /Game/.../UI_Pause.UI_Pause_C" - keep the path.
 				local path = "?"
-				pcall(function() path = obj:GetClass():GetFullName() end)
+				HostPcall(function() if not IsValidObject(obj) then return end; path = obj:GetClass():GetFullName() end)
 				path = string.match(path, "([^%s]+)$") or path
 
 				seen = { count = 0, path = path, sample = obj }
@@ -3566,13 +3616,13 @@ function BindKeys()
 		if name == "" or boundKeys[name] then return end
 
 		local key = nil
-		pcall(function() key = Key[name] end)
+		HostPcall(function() key = Key[name] end)
 		if key == nil then
 			Log("WARNING: '%s' is not a key name UE4SS knows", name)
 			return
 		end
 
-		if pcall(function() RegisterKeyBind(key, function() Defer(0, action) end) end) then
+		if pcall(function() Work.host.RegisterKeyBind(key, function() Defer(0, action) end) end) then
 			boundKeys[name] = true
 			Log("%s bound to %s", label, name)
 		end
@@ -3606,7 +3656,7 @@ end
 --   * anything NAMED INSIDE it - [Crosshair], [HumanStats] - lives on the class WidgetTree
 --     template, because an instance's tree is duplicated from that template.
 --
--- NotifyOnNewObject stays: a widget the game pools and reuses keeps its object, so it is past the
+-- Work.host.NotifyOnNewObject stays: a widget the game pools and reuses keeps its object, so it is past the
 -- point where a default applies, and only a write on the live widget puts it back.
 local classDefaults     = {}   -- [fullName] = { obj, snapshot } - what the blueprint shipped
 local classDefaultsDone = {}   -- [classPath] = true once that class has been baked
@@ -3676,7 +3726,7 @@ function PatchClassDefaults()
 		local classPath = (not spec.native) and spec.path or nil
 		if classPath ~= nil and not classDefaultsDone[classPath] then
 			local cls = nil
-			pcall(function() cls = StaticFindObject(classPath) end)
+			pcall(function() cls = Work.host.StaticFindObject(classPath) end)
 
 			if IsValidObject(cls) then
 				classDefaultsDone[classPath] = true
@@ -3684,7 +3734,7 @@ function PatchClassDefaults()
 				-- the widget itself
 				local cdoPath = string.gsub(classPath, "%.([^.]+)$", ".Default__%1")
 				local cdo = nil
-				pcall(function() cdo = StaticFindObject(cdoPath) end)
+				pcall(function() cdo = Work.host.StaticFindObject(cdoPath) end)
 				if IsValidObject(cdo) then
 					PatchDefaultObject(cdo, SafeShortName(cdo), spec.class, true)
 				else
@@ -3714,7 +3764,7 @@ end
 -- Hooks
 -- ##############################
 
--- NotifyOnNewObject fires the moment an instance is allocated, which is earlier than any UFunction
+-- Work.host.NotifyOnNewObject fires the moment an instance is allocated, which is earlier than any UFunction
 -- hook could be and - unlike Construct - exists for every one of these classes whether or not the
 -- blueprint happens to implement an event. That is why this mod hooks allocation rather than
 -- Construct: most of this game's HUD widgets are native C++ classes with no Construct to hook.
@@ -3812,11 +3862,11 @@ local function ReassertWidget(widget)
 	-- WidgetTree" would have called the subsystem a user widget and quietly switched the preset
 	-- hooks off. If the class cannot be found the broad path is skipped, which is the safe side.
 	if userWidgetClass == nil then
-		pcall(function() userWidgetClass = StaticFindObject("/Script/UMG.UserWidget") end)
+		pcall(function() userWidgetClass = Work.host.StaticFindObject("/Script/UMG.UserWidget") end)
 	end
 	local isUserWidget = true
 	if IsValidObject(userWidgetClass) then
-		local ok, res = pcall(function() return widget:IsA(userWidgetClass) end)
+		local ok, res = HostPcall(function() if not IsValidObject(widget) then return end; return widget:IsA(userWidgetClass) end)
 		isUserWidget = (not ok) or (res == true)
 	end
 	if isUserWidget then return end
@@ -3844,7 +3894,7 @@ function HookReassertAfter()
 			    "/Script/Module.Class:Function", spec)
 		elseif not reassertAfterHooked[path] then
 			local ok = pcall(function()
-				RegisterHook(path, function() end, function(context)
+				Work.host.RegisterHook(path, function() end, function(context)
 					local ok, widget = pcall(function() return context:get() end)
 					if ok then Defer(0, function() ReassertWidget(widget) end, true, widget) end
 				end)
@@ -3899,7 +3949,7 @@ HookNewObjects()
 HookReassertAfter()
 HookFadeFrame()
 
-RegisterHook("/Script/Engine.PlayerController:ClientRestart", function(context)
+Work.host.RegisterHook("/Script/Engine.PlayerController:ClientRestart", function(context)
 	RetireWork()
 	local ok, controller = pcall(function() return context:get() end)
 	if ok then Defer(0, function() ObjectIndex.context(controller) end, true, nil, true) end
@@ -3907,7 +3957,7 @@ RegisterHook("/Script/Engine.PlayerController:ClientRestart", function(context)
 
 	if not beginPlayHooked then
 		beginPlayHooked = pcall(function()
-			RegisterHook(BEGIN_PLAY, function()
+			Work.host.RegisterHook(BEGIN_PLAY, function()
 				-- The HUD is built around here. A level transition comes back through here too,
 				-- with a brand new set of widgets, so everything we held is stale.
 				RetireWork()

@@ -62,7 +62,7 @@
     "nativeValidation": "Loading and combat validation pending"
   },
   "pendingPerformance": {
-    "changes": "Spread HUD work across frames, track object construction, coalesce updates and resume current instances after loading",
+    "changes": "Spread HUD work across frames, track object construction, coalesce updates, resume current instances after loading, and execute native operations from UE4SS-registered Lua callbacks",
     "nativeValidation": "In-game frame-time comparison and loading/combat validation pending"
   }
 }

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Reduce HUD stuttering during loading and gameplay.
+- Fix HUD visibility and reduce stuttering during loading and gameplay.
 
 ## 1.1.4 — 2026-09-06
 

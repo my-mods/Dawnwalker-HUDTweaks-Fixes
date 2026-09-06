@@ -5,7 +5,7 @@ local function SameOwner(a, b)
     return a == b or (a:IsValid() and b:IsValid() and a:GetAddress() == b:GetAddress())
 end
 local function CurrentEntry(entry)
-    local ok, live = pcall(function()
+    local ok, live = HostPcall(function()
         return entry.obj:IsValid()
             and (not entry.world or not ObjectIndex.world or SameOwner(entry.world, ObjectIndex.world))
             and (not entry.owner or not ObjectIndex.owner or SameOwner(entry.owner, ObjectIndex.owner))
@@ -21,7 +21,7 @@ local function IndexedWorld(obj)
 end
 function ObjectIndex.add(obj)
     BudgetStep()
-    local ok, names, world, owner = pcall(function()
+    local ok, names, world, owner = HostPcall(function()
         if not obj or not obj:IsValid() then return nil end
         local full = obj:GetFullName()
         if string.find(full, 'Default__', 1, true) then return nil end
@@ -33,11 +33,11 @@ function ObjectIndex.add(obj)
             if name == 'UserWidget' then isWidget = true end
             cls = cls:GetSuperStruct()
         end
-        local hasWorld, w = pcall(IndexedWorld, obj)
+        local hasWorld, w = HostPcall(IndexedWorld, obj)
         if not hasWorld then w = nil end
         local player
         if isWidget then
-            local hasOwner, candidate = pcall(function() return obj:GetOwningPlayer() end)
+            local hasOwner, candidate = HostPcall(function() return obj:GetOwningPlayer() end)
             if hasOwner and candidate and candidate:IsValid() then player = candidate end
         end
         return chain, w, player
@@ -89,14 +89,14 @@ function ObjectIndex.prune(replay)
     end
 end
 function ObjectIndex.context(controller)
-    local ok, localPlayer = pcall(function() return controller:IsValid() and controller:IsLocalController() end)
+    local ok, localPlayer = HostPcall(function() return controller:IsValid() and controller:IsLocalController() end)
     if not ok or not localPlayer then return end
     ObjectIndex.attempts = {}
     ObjectIndex.owner = controller
-    local found, world = pcall(IndexedWorld, controller)
+    local found, world = HostPcall(IndexedWorld, controller)
     ObjectIndex.world = found and world or nil
     ObjectIndex.capture(controller)
-    local valid, pawn = pcall(function() return controller.Pawn end)
+    local valid, pawn = HostPcall(function() if controller:IsValid() then return controller.Pawn end end)
     if valid and pawn then ObjectIndex.capture(pawn) end
 end
 function ObjectIndex.start()
@@ -104,7 +104,7 @@ function ObjectIndex.start()
         '/Script/Engine.WorldSubsystem', '/Script/Engine.GameInstanceSubsystem'}) do
         if not ObjectIndex.hooks[path] and (ObjectIndex.attempts[path] or 0) < 3 then
             ObjectIndex.attempts[path] = (ObjectIndex.attempts[path] or 0) + 1
-            ObjectIndex.hooks[path] = pcall(NotifyOnNewObject, path, ObjectIndex.capture)
+            ObjectIndex.hooks[path] = pcall(Work.host.NotifyOnNewObject, path, ObjectIndex.capture)
             if not ObjectIndex.hooks[path] and ObjectIndex.attempts[path] == 3 then
                 Log('HUD discovery unavailable for %s; check UE4SS compatibility.', path)
             end

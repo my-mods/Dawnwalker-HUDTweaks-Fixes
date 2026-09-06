@@ -3,6 +3,30 @@ local Work = {forced = {}, fading = {}, queue = {}, keyed = {}, active = {}, tok
     frame = nil, units = 0, started = 0, current = nil, clock = nil, attempts = 0,
     stats = {slices = 0, maxMs = 0, maxUnits = 0, coalesced = 0}}
 local Pump, Arm
+-- UE4SS binds native APIs to the Lua states it creates. Plain Lua coroutines
+-- only plan work; the registered game-thread callback executes native calls.
+local function HostPcall(fn, ...)
+    if Work.current ~= coroutine.running() then return pcall(fn, ...) end
+    return coroutine.yield({call = fn, args = table.pack(...)})
+end
+local function HostFunction(fn)
+    if type(fn) ~= 'function' then return fn end
+    return function(...)
+        local result = table.pack(HostPcall(fn, ...))
+        if not result[1] then error(result[2], 0) end
+        return table.unpack(result, 2, result.n)
+    end
+end
+Log = HostFunction(Log)
+Work.host = {
+    StaticFindObject = HostFunction(StaticFindObject),
+    RegisterHook = HostFunction(RegisterHook),
+    RegisterKeyBind = HostFunction(RegisterKeyBind),
+    NotifyOnNewObject = HostFunction(NotifyOnNewObject),
+    ExecuteInGameThreadWithDelay = HostFunction(ExecuteInGameThreadWithDelay),
+    ExecuteInGameThread = HostFunction(ExecuteInGameThread),
+    ExecuteWithDelay = HostFunction(ExecuteWithDelay),
+}
 local function BudgetStep()
     if Work.current ~= coroutine.running() then return end
     while Work.units >= 128 or os.clock() - Work.started >= 0.001 do coroutine.yield() end
@@ -31,10 +55,10 @@ Arm = function(ms)
         Work.due = nil
         Pump()
     end
-    if type(ExecuteInGameThreadWithDelay) == 'function' then
-        ExecuteInGameThreadWithDelay(math.max(ms, 1), run)
-    elseif type(ExecuteInGameThread) == 'function' and type(ExecuteWithDelay) == 'function' then
-        ExecuteWithDelay(math.max(ms, 1), function() ExecuteInGameThread(run) end)
+    if type(Work.host.ExecuteInGameThreadWithDelay) == 'function' then
+        Work.host.ExecuteInGameThreadWithDelay(math.max(ms, 1), run)
+    elseif type(Work.host.ExecuteInGameThread) == 'function' and type(Work.host.ExecuteWithDelay) == 'function' then
+        Work.host.ExecuteWithDelay(math.max(ms, 1), function() Work.host.ExecuteInGameThread(run) end)
     else
         Work.due = nil
         if not Work.warned then Log('HUD scheduling requires game-thread callbacks.'); Work.warned = true end
@@ -44,7 +68,7 @@ local function FrameNumber()
     if Work.clock == nil then
         if Work.attempts >= 3 then return nil end
         Work.attempts = Work.attempts + 1
-        local ok, lib = pcall(StaticFindObject, '/Script/Engine.Default__KismetSystemLibrary')
+        local ok, lib = pcall(Work.host.StaticFindObject, '/Script/Engine.Default__KismetSystemLibrary')
         if ok then Work.clock = lib end
     end
     local ok, frame = pcall(function()
@@ -96,12 +120,21 @@ Pump = function()
             if not job then break end
             Work.units = Work.units + 1
             Work.current = job.thread
-            local ok, err = coroutine.resume(job.thread)
+            local reply = job.reply
+            job.reply = nil
+            local ok, err
+            if reply then ok, err = coroutine.resume(job.thread, table.unpack(reply, 1, reply.n))
+            else ok, err = coroutine.resume(job.thread) end
             Work.current = nil
             if not ok or coroutine.status(job.thread) == 'dead' then
                 if job.key ~= nil and Work.keyed[job.key] == job then Work.keyed[job.key] = nil end
                 Work.active[lane] = nil
                 if not ok then Log('HUD job stopped: %s', tostring(err)) end
+            elseif type(err) == 'table' and type(err.call) == 'function' then
+                -- Run one atomic operation here, never in the job's Lua state.
+                -- Replies contain scalars, owned Lua tables or UObject references;
+                -- borrowed property structs stay inside the atomic operation.
+                job.reply = table.pack(pcall(err.call, table.unpack(err.args, 1, err.args.n)))
             else break end
         end
     end
