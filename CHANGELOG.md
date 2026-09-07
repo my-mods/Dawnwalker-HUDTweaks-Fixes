@@ -67,3 +67,5 @@
 
 - Initial six-section opacity overlay.
 - Known packaging defect: Vortex routes the INI beside the executable, not to HUDTweaks.
+
+- Standardize the debug logging setting as `debugLogging`; retain existing configuration compatibility.

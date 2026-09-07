@@ -276,7 +276,7 @@ local function Log(fmt, ...)
 end
 
 local function Debug(fmt, ...)
-	if S.debugLogs then Log(fmt, ...) end
+	if S.debugLogging then Log(fmt, ...) end
 end
 
 -- One shared game-thread dispatcher; checkpoints never retain borrowed structs.
@@ -885,7 +885,7 @@ local function ResolveSettings()
 
 	S.enabled          = GetBool("General", "enabled", true)
 	S.startImmediately = GetBool("General", "startImmediately", true)
-	S.debugLogs        = GetBool("General", "debugLogs", false)
+	S.debugLogging        = GetBool("General", "debugLogging", GetBool("General", "debugLogs", false))
 	S.reloadKeyName    = GetStr ("General", "reloadKey", "F7")
 	S.toggleKeyName    = GetStr ("General", "toggleKey", "F8")
 	S.scanKeyName      = GetStr ("General", "scanKey", "F9")
@@ -3098,7 +3098,7 @@ local function AutoFadeStep(withProbes)
 			    now - fadeFirstTick,
 			    (why ~= "") and why or "(nothing this tick - so it is intermittent, not stuck)")
 			Log("  If one of those does not match what you were actually doing, switch it off in " ..
-			    "[AutoFade] and press %s. debugLogs = true prints this every time it changes.",
+			    "[AutoFade] and press %s. debugLogging = true prints this every time it changes.",
 			    string.upper(Trim(S.reloadKeyName or "F7")))
 		end
 

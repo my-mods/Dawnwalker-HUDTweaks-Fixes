@@ -36,3 +36,5 @@ Prepared against Steam build **25129649 / CL-257186** and HUDTweaks v4. Later ve
 ## Credits
 
 Original HUDTweaks code and configuration belong to its author. This is an unofficial fixes add-on.
+
+Debug output is controlled by `[General] debugLogging = true` (or `false`). The older `debugLogs` key remains readable when `debugLogging` is absent. Restart after editing the INI.
