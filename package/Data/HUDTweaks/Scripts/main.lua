@@ -637,21 +637,12 @@ end
 -- ##############################
 
 -- UE4SS reports the script path as "@E:\...\Scripts\main.lua". Strip the marker, keep the folder.
+local menuDirectory = assert(SCRIPT_SOURCE:gsub('^@', ''):match('^(.*[/\\])'))
+local MenuSettings = dofile(menuDirectory .. 'MenuSettings.lua')
 local function IniCandidates()
-	local list   = {}
-	local source = SCRIPT_SOURCE or ""
-	if string.sub(source, 1, 1) == "@" then source = string.sub(source, 2) end
-
-	local dir = string.match(source, "^(.*)[/\\][^/\\]*$")
-	if dir ~= nil and dir ~= "" then
-		list[#list + 1] = dir .. "\\" .. INI_NAME
-		list[#list + 1] = dir .. "/" .. INI_NAME
-	end
-
-	-- The game's working directory is Binaries/Win64, so this reaches the same file another way.
-	list[#list + 1] = "ue4ss/Mods/" .. MOD_FOLDER .. "/Scripts/" .. INI_NAME
-	list[#list + 1] = INI_NAME
-	return list
+    local path, err = MenuSettings.path()
+    if not path then Log('Settings snapshot failed: %s', tostring(err)); return {} end
+    return {path}
 end
 
 local function ParseValue(raw)
@@ -765,6 +756,8 @@ local function LoadIni()
 		for _, entry in ipairs(rejected) do Log("    %s", entry) end
 	end
 
+	local loaded, settingsError = MenuSettings.apply(ini)
+	if not loaded then Log('Settings rejected: %s', tostring(settingsError)); ini = {}; return false end
 	return true
 end
 

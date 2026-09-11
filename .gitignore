@@ -15,3 +15,8 @@ AGENTS.md
 /publish*
 /reapply*
 *.log
+
+# Generated personal menu settings are never shipped.
+**/settings.ini
+**/settings.ini.*
+**/HUDTweaks.advanced.ini

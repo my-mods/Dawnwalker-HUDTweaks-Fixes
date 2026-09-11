@@ -17,17 +17,9 @@ Preserves HUDTweaks v4's layout and visual defaults. Activity changes can take a
 
 ## Installation
 
-1. Download **HUDTweaks-Fixes.zip** from [Releases](https://github.com/my-mods/Dawnwalker-HUDTweaks-Fixes/releases).
-2. Install it through Vortex as **UE4SS (Lua mods)**, with original HUDTweaks v4 enabled.
-3. Load **HUD Tweaks - Fixes after HUDTweaks** so it wins both `main.lua` and `HUDTweaks.ini` conflicts, then deploy.
+Install original HUDTweaks v4, UE4SS, and Mod Setting Menu 1.0.5 or later through Vortex. Replace this mod using its existing entry and let it win the Lua script conflict with HUDTweaks. This update adds files and retires the packaged HUDTweaks.ini override, so reinstall the updated ZIP through the installer.
 
-The mod replaces the full HUDTweaks INI and Lua script. Back up any custom INI settings and reapply them after installation.
-
-For updates, replace/reinstall the existing fixes entry from the new ZIP through Vortex, keep it after original HUDTweaks, deploy, and restart the game.
-
-Configuration: [AutoFade] checkSeconds = 0.5 controls activity detection; [General] reassertSeconds = 5.0 controls layout maintenance. Fade durations and animation cadence retain the v4 defaults. Delayed widget updates always use the game thread, including when the legacy gameThreadTimers option is disabled.
-
-To uninstall, disable/remove this add-on and deploy through Vortex, leaving original HUDTweaks enabled.
+Back up your existing HUDTweaks.ini before replacement: previous versions replaced the full INI. Restore that backed-up file as the legacy input before the first launch if Vortex restored upstream defaults during replacement. This version imports it without replacing it. See SETTINGS.md for the generated settings and advanced-snapshot backup paths.
 
 ## Compatibility
 
@@ -37,4 +29,8 @@ Prepared against Steam build **25129649 / CL-257186** and HUDTweaks v4. Later ve
 
 Original HUDTweaks code and configuration belong to its author. This is an unofficial fixes add-on.
 
-Debug output is controlled by `[General] debugLogging = true` (or `false`). The older `debugLogs` key remains readable when `debugLogging` is absent. Restart after editing the INI.
+Debug output is controlled by the Debug logging toggle in Mod Settings. Apply, then restart.
+
+## Settings
+
+Use Mod Setting Menu 1.0.5 or later, Apply, then fully restart. See [SETTINGS.md](SETTINGS.md) for controls, migration and backups.
