@@ -17,7 +17,7 @@ Missing, duplicate or invalid settings stop configuration loading and are report
 | General | tweakMenus | Off, On |
 | AutoFade | enabled | Off, On |
 | AutoFade | idleAfterSeconds | 0 to 120 |
-| AutoFade | idleOpacity | 0 to 120 |
+| AutoFade | idleOpacity | 0 to 1 |
 | AutoFade | fadeOutSeconds | 0 to 120 |
 | AutoFade | fadeInSeconds | 0 to 120 |
 | AutoFade | peekSeconds | 0 to 120 |

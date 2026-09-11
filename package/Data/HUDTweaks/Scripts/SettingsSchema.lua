@@ -9,7 +9,7 @@ return {
     {key="General_tweakMenus", default=0, values={0,1}},
     {key="AutoFade_enabled", default=1, values={0,1}},
     {key="AutoFade_idleAfterSeconds", default=2.0, min=0, max=120, integer=false},
-    {key="AutoFade_idleOpacity", default=0.0, min=0, max=120, integer=false},
+    {key="AutoFade_idleOpacity", default=0.0, min=0, max=1, integer=false},
     {key="AutoFade_fadeOutSeconds", default=1.6, min=0, max=120, integer=false},
     {key="AutoFade_fadeInSeconds", default=0.8, min=0, max=120, integer=false},
     {key="AutoFade_peekSeconds", default=4.0, min=0, max=120, integer=false},
