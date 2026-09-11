@@ -19,7 +19,7 @@ Preserves HUDTweaks v4's layout and visual defaults. Activity changes can take a
 
 Install original HUDTweaks v4, UE4SS, and Mod Setting Menu 1.0.5 or later through Vortex. Replace this mod using its existing entry and let it win the Lua script conflict with HUDTweaks. This update adds files and retires the packaged HUDTweaks.ini override, so reinstall the updated ZIP through the installer.
 
-Back up your existing HUDTweaks.ini before replacement: previous versions replaced the full INI. Restore that backed-up file as the legacy input before the first launch if Vortex restored upstream defaults during replacement. This version imports it without replacing it. See SETTINGS.md for the generated settings and advanced-snapshot backup paths.
+Back up your existing HUDTweaks.ini before replacement: previous versions replaced the full INI. Restore that backed-up file as the legacy input before the first launch if Vortex restored upstream defaults during replacement. This version imports it, verifies the new menu settings and advanced snapshot, then removes the migrated legacy file. See SETTINGS.md for the generated settings and advanced-snapshot backup paths.
 
 ## Compatibility
 

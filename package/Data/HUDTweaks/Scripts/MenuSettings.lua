@@ -129,6 +129,7 @@ local fields = {
  {"WBP_GameplayDialogue_OverheadSubtitle_opacity","wbp_gameplaydialogue_overheadsubtitle","opacity","number"}
 }
 local M = {}
+local legacySource
 function M.path()
     local path=directory..'HUDTweaks.advanced.ini'
     local text,err,code=Store.read(path)
@@ -140,6 +141,11 @@ function M.path()
         local ok,e=Store.create(path,text)
         if not ok and not Store.read(path) then return nil,e end
     end
+    -- The advanced snapshot retains all text settings before its old source can be removed.
+    local legacyPath=directory..'HUDTweaks.ini'
+    local legacy=Store.read(legacyPath)
+    local saved=Store.read(path)
+    legacySource = legacy and legacy==saved and {path=legacyPath, text=legacy, preservePath=path} or nil
     return path
 end
 function M.apply(ini)
@@ -153,7 +159,7 @@ function M.apply(ini)
             if v~=nil and type(v)~='number' then return nil,'Cannot migrate '..f[1] end
             result[f[1]]=v
         end
-        return result
+        return result, nil, legacySource and {legacySource} or nil
     end)
     if not values then return nil,err end
     for _,f in ipairs(fields) do

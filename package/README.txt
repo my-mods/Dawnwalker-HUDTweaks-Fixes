@@ -19,7 +19,7 @@ Preserves HUDTweaks v4's layout and visual defaults. Activity changes can take a
 
 Install original HUDTweaks v4, UE4SS, and Mod Setting Menu 1.0.5 or later through Vortex. Replace this mod using its existing entry and let it win the Lua script conflict with HUDTweaks. This update adds files and retires the packaged HUDTweaks.ini override, so reinstall the updated ZIP through the installer.
 
-Back up your existing HUDTweaks.ini before replacement: previous versions replaced the full INI. Restore that backed-up file as the legacy input before the first launch if Vortex restored upstream defaults during replacement. This version imports it without replacing it. See SETTINGS.md for the generated settings and advanced-snapshot backup paths.
+Back up your existing HUDTweaks.ini before replacement: previous versions replaced the full INI. Restore that backed-up file as the legacy input before the first launch if Vortex restored upstream defaults during replacement. This version imports it, verifies the new menu settings and advanced snapshot, then removes the migrated legacy file. See SETTINGS.md for the generated settings and advanced-snapshot backup paths.
 
 ## Compatibility
 
@@ -39,7 +39,7 @@ Use Mod Setting Menu 1.0.5 or later, Apply, then fully restart. See [SETTINGS.md
 
 Install [Mod Setting Menu 1.0.5 or later](https://www.nexusmods.com/thebloodofdawnwalker/mods/271) and UE4SS through Vortex. Start the game once, then open Main Menu > Mod Settings > All Mods. Select this mod, change settings and press Apply. **Fully close and restart the game after Apply.** Restore discards unapplied changes; Reset selects this mod’s defaults.
 
-The stable menu ID is `oOCamilleOo_HUDTweaksFixes`. The mod generates `settings.ini` beside `mod_settings.ini` in its UE4SS mod folder. This generated file is the authoritative settings store and is not shipped in the ZIP. Existing supported preferences are imported on first use; legacy files are left intact and are no longer synchronized. Back up `settings.ini` before removing/reinstalling the mod or moving its folder. Restore that backup into the same runtime folder before launching. Do not restore an old INI over it.
+The stable menu ID is `oOCamilleOo_HUDTweaksFixes`. The mod generates `settings.ini` beside `mod_settings.ini` in its UE4SS mod folder. This generated file is the authoritative settings store and is not shipped in the ZIP. Existing supported preferences are imported on first use. After the new settings are saved and verified, the successfully imported legacy files are deleted if their contents are unchanged. Migration or save failures retain the originals. Cleanup failures are logged and do not prevent using the new settings. Files left by an earlier migration are not deleted automatically. Back up `settings.ini` before removing/reinstalling the mod or moving its folder. Restore that backup into the same runtime folder before launching. Do not restore an old INI over it.
 
 Missing, duplicate or invalid settings stop configuration loading and are reported in `Dawnwalker/Binaries/Win64/ue4ss/UE4SS.log`. Preserve the file before correcting it. If a menu save fails, preserve its temporary/backup files and follow the menu’s recovery instructions. Settings are never polled. `debugLogging` controls additional diagnostic logging; it defaults to Off.
 
@@ -54,7 +54,7 @@ Missing, duplicate or invalid settings stop configuration loading and are report
 | General | tweakMenus | Off, On |
 | AutoFade | enabled | Off, On |
 | AutoFade | idleAfterSeconds | 0 to 120 |
-| AutoFade | idleOpacity | 0 to 120 |
+| AutoFade | idleOpacity | 0 to 1 |
 | AutoFade | fadeOutSeconds | 0 to 120 |
 | AutoFade | fadeInSeconds | 0 to 120 |
 | AutoFade | peekSeconds | 0 to 120 |
@@ -170,7 +170,7 @@ Missing, duplicate or invalid settings stop configuration loading and are report
 | HUD: WBP_MediumTutorialPopup | force | Off, On |
 | HUD: WBP_GameplayDialogue_OverheadSubtitle | opacity | -1 to 1 |
 
-HUD Tweaks also creates `Scripts/HUDTweaks.advanced.ini` on first use, copying the existing HUDTweaks INI or shipped defaults. This preserves advanced class paths, wildcard selectors, text lists and key bindings that the numeric menu cannot represent. Numeric settings in that snapshot are superseded by the menu. Back up this file alongside `settings.ini`. Existing HUDTweaks.ini files remain unchanged. Threading and scheduler controls are fixed implementation settings and are not exposed in the menu.
+HUD Tweaks also creates `Scripts/HUDTweaks.advanced.ini` on first use, copying the existing HUDTweaks INI or shipped defaults. This preserves advanced class paths, wildcard selectors, text lists and key bindings that the numeric menu cannot represent. Numeric settings in that snapshot are superseded by the menu. Back up this file alongside `settings.ini`. The imported HUDTweaks.ini is removed only after both its exact advanced snapshot and the new menu settings are verified; the advanced file is retained. Threading and scheduler controls are fixed implementation settings and are not exposed in the menu.
 
 Console commands are not used to change settings.
 
